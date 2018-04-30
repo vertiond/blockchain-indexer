@@ -2,10 +2,12 @@ FROM ubuntu:16.04
 
 RUN apt-get update && apt install -y git wget build-essential libleveldb-dev cmake automake libssl-dev libtool autoconf libjsonrpccpp-dev libjsoncpp-dev libcurl4-openssl-dev
 
-RUN git clone --recursive https://github.com/Corvusoft/restbed
+RUN mkdir /src
+WORKDIR /src
+RUN git clone --recursive https://github.com/corvusoft/restbed.git
 RUN mkdir restbed/build
-WORKDIR /restbed/build
-RUN cmake ..
+WORKDIR restbed/build
+RUN cmake -DBUILD_SSL=NO ..
 RUN make install
 RUN cp -r ../distribution/include/* /usr/local/include
 RUN cp -r ../distribution/library/* /usr/lib

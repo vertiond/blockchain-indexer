@@ -101,6 +101,6 @@ int main(int argc, char* argv[]) {
     std::thread watcherThread(runBlockfileWatcher);   
     
     // Start webserver on main thread.
-    httpServer.reset(new VtcBlockIndexer::HttpServer(database, mempoolMonitor, string(argv[1])));
+    httpServer.reset(new VtcBlockIndexer::HttpServer(database, mempoolMonitor, options["blocksDir"].as<string>()));
     httpServer->run(); 
 }
