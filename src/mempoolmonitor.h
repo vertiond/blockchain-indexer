@@ -54,6 +54,9 @@ public:
     /** Returns TXOs in the memorypool matching an address */
     vector<VtcBlockIndexer::TransactionOutput> getTxos(string address);
 
+    /** Returns all TX IDs in the mempool */
+    vector<std::string> getTxIds();
+    
 private:
     unique_ptr<VertcoinClient> vertcoind;
     unique_ptr<jsonrpc::HttpClient> httpClient;

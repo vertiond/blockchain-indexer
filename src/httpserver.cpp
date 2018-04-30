@@ -44,6 +44,17 @@ VtcBlockIndexer::HttpServer::HttpServer(shared_ptr<leveldb::DB> db, shared_ptr<V
     vertcoind.reset(new VertcoinClient(*httpClient));
 }
 
+void VtcBlockIndexer::HttpServer::mempoolTransactionIds(const shared_ptr<Session> session) {
+    const auto request = session->get_request();
+    
+    vector<std::string> txIds = mempoolMonitor->getTxIds();
+    json j = json::array();
+    for (string txid : txIds) {
+        j.push_back(txid);
+    }
+    string body = j.dump();
+    session->close( OK, body, { { "Content-Type",  "application/json" }, { "Content-Length",  std::to_string(body.size()) } } );
+}
 
 
 void VtcBlockIndexer::HttpServer::getTransaction(const shared_ptr<Session> session) {
@@ -65,6 +76,64 @@ void VtcBlockIndexer::HttpServer::getTransaction(const shared_ptr<Session> sessi
     }
 }
 
+void VtcBlockIndexer::HttpServer::getBlock(const shared_ptr<Session> session) {
+    const auto request = session->get_request();
+    
+    string highestBlockString;
+    this->db->Get(leveldb::ReadOptions(),"highestblock",&highestBlockString);
+
+    uint64_t highestBlock = stoll(highestBlockString);
+
+    std::string blockHashString = request->get_path_parameter("hash","");
+
+    string blockHeightString;
+    leveldb::Status s = this->db->Get(leveldb::ReadOptions(),"block-hash-" + blockHashString,&blockHeightString);
+    if(!s.ok()) // no key found
+    { 
+        const std::string message("Block not found");
+        session->close(404, message, {{"Content-Length",  std::to_string(message.size())}});
+        return;
+    }
+
+
+
+    uint64_t blockHeight = stoll(blockHeightString);
+
+    stringstream blockKey;
+    blockKey << "block-filePosition-" << setw(8) << setfill('0') << blockHeight;
+
+
+    cout << "Finding block fileposition " << blockKey.str() << endl;
+
+
+    std::string filePosition;
+    s = this->db->Get(leveldb::ReadOptions(), blockKey.str(), &filePosition);
+    if(!s.ok()) // no key found
+    {
+        const std::string message("Block not found");
+        session->close(404, message, {{"Content-Length",  std::to_string(message.size())}});
+        return;
+    }
+    
+    cout << "Fileposition: " << filePosition << endl;
+
+
+    Block block = this->blockReader->readBlock(filePosition.substr(0,12),stoll(filePosition.substr(12,12)),blockHeight,true);
+
+    json jsonBlock;
+    jsonBlock["blockHash"] = block.blockHash;
+    jsonBlock["previousBlockHash"] = block.previousBlockHash;
+    jsonBlock["merkleRoot"] = block.merkleRoot;
+    jsonBlock["version"] = block.version;
+    jsonBlock["time"] = block.time;
+    jsonBlock["bits"] = block.bits;
+    jsonBlock["nonce"] = block.nonce;
+    jsonBlock["height"] = block.height;
+    jsonBlock["confirmations"] = highestBlock-block.height+1;
+    string body = jsonBlock.dump();
+    
+    session->close( OK, body, { { "Content-Type",  "application/json" }, { "Content-Length",  std::to_string(body.size()) } } );
+}
 
 void VtcBlockIndexer::HttpServer::getTransactionProof(const shared_ptr<Session> session) {
     const auto request = session->get_request();
@@ -201,6 +270,52 @@ void VtcBlockIndexer::HttpServer::getBlocks(const shared_ptr<Session> session) {
 
     string body = j.dump();
     
+   session->close( OK, body, { { "Content-Type",  "application/json" }, { "Content-Length",  std::to_string(body.size()) } } );
+
+}
+
+void VtcBlockIndexer::HttpServer::getBlocksByDate(const shared_ptr<Session> session) {
+    json j = json::array();
+ 
+    const auto request = session->get_request( );
+
+    long long startParam = stoll(request->get_query_parameter("start","0"));
+    long long endParam = stoll(request->get_query_parameter("end","0"));
+    
+
+    stringstream ssBlockHeightTimeStartKey;
+    stringstream ssBlockHeightTimeEndKey;
+    ssBlockHeightTimeStartKey << "block-hash-time-" << setw(12) << setfill('0') << startParam;
+    ssBlockHeightTimeEndKey << "block-hash-time-" << setw(12) << setfill('0') << endParam;
+    
+    string start(ssBlockHeightTimeStartKey.str());
+    string limit(ssBlockHeightTimeEndKey.str());
+    
+    leveldb::Iterator* it = this->db->NewIterator(leveldb::ReadOptions());
+    for (it->Seek(start);
+            it->Valid() && it->key().ToString() <= limit;
+            it->Next()) {
+        json blockObj;
+        string blockHashString = it->value().ToString();
+        string blockHeightString;
+        this->db->Get(leveldb::ReadOptions(),"block-hash-" + blockHashString,&blockHeightString);
+        string blockSizeString;
+        string blockTxesString;
+        string blockTimeString;
+        this->db->Get(leveldb::ReadOptions(),"block-size-" + blockHeightString,&blockSizeString);
+        this->db->Get(leveldb::ReadOptions(),"block-txcount-" + blockHeightString,&blockTxesString);
+        this->db->Get(leveldb::ReadOptions(),"block-time-" + blockHeightString,&blockTimeString);
+        blockObj["hash"] = it->value().ToString();
+        blockObj["height"] = stoll(blockHeightString);
+        blockObj["size"] = stoll(blockSizeString);
+        blockObj["time"] = stoll(blockTimeString);
+        blockObj["txlength"] = stoll(blockTxesString);
+        blockObj["poolInfo"] = nullptr;
+        j.push_back(blockObj);
+    }
+
+    string body = j.dump();
+     
    session->close( OK, body, { { "Content-Type",  "application/json" }, { "Content-Length",  std::to_string(body.size()) } } );
 
 }
@@ -630,6 +745,21 @@ void VtcBlockIndexer::HttpServer::run()
     blocksResource->set_path( "/blocks" );
     blocksResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::getBlocks, this, std::placeholders::_1) );
 
+
+    auto blockResource = make_shared<Resource>();
+    blockResource->set_path( "/block/{hash: [0-9a-f]*}" );
+    blockResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::getBlock, this, std::placeholders::_1) );
+
+
+    auto blocksByDateResource = make_shared<Resource>();
+    blocksByDateResource->set_path( "/blocksbydate" );
+    blocksByDateResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::getBlocksByDate, this, std::placeholders::_1) );
+
+    auto mempoolResource = make_shared<Resource>();
+    mempoolResource->set_path( "/mempool" );
+    mempoolResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::mempoolTransactionIds, this, std::placeholders::_1) );
+
+
     auto syncResource = make_shared<Resource>();
     syncResource->set_path( "/sync" );
     syncResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::sync, this, std::placeholders::_1) );
@@ -649,7 +779,10 @@ void VtcBlockIndexer::HttpServer::run()
     service.publish( outpointSpendResource );
     service.publish( outpointSpendsResource );
     service.publish( sendRawTransactionResource );
+    service.publish( blockResource );
     service.publish( blocksResource );
+    service.publish( blocksByDateResource );
+    service.publish( mempoolResource );
     service.publish( syncResource );
     service.start( settings );
 }

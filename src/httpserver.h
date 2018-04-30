@@ -67,6 +67,15 @@ namespace VtcBlockIndexer {
             /* REST Api for returning list of blocks */
             void getBlocks( const shared_ptr< Session > session );
             
+             /* REST Api for returning list of blocks */
+            void getBlock( const shared_ptr< Session > session );
+            
+            /* REST Api for returning list of blocks by date */
+            void getBlocksByDate( const shared_ptr< Session > session );
+            
+            /* REST Api for returning list of transactionids in the memory pool */
+            void mempoolTransactionIds( const shared_ptr< Session > session );
+            
             /* REST Api for returning sync status */
             void sync( const shared_ptr< Session > session );
 

@@ -88,6 +88,15 @@ string VtcBlockIndexer::MempoolMonitor::outpointSpend(string txid, uint32_t vout
     }
     return "";
 }
+
+vector<std::string> VtcBlockIndexer::MempoolMonitor::getTxIds() {
+    vector<std::string> result = {};
+    for (auto kvp : mempoolTransactions) {
+        VtcBlockIndexer::Transaction tx = kvp.second;
+        result.push_back(tx.txHash);
+    }
+    return result;
+}
  
 vector<VtcBlockIndexer::TransactionOutput> VtcBlockIndexer::MempoolMonitor::getTxos(std::string address) {
     if(addressMempoolTransactions.find(address) == addressMempoolTransactions.end())

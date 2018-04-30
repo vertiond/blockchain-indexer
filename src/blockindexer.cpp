@@ -157,6 +157,10 @@ bool VtcBlockIndexer::BlockIndexer::indexBlock(Block block) {
     ssBlockTimeHeightKey << "block-time-" << setw(8) << setfill('0') << block.height;
     this->db->Put(leveldb::WriteOptions(), ssBlockTimeHeightKey.str(), std::to_string(block.time));
     
+    stringstream ssBlockHeightTimeKey;
+    ssBlockHeightTimeKey << "block-hash-time-" << setw(12) << setfill('0') << block.time;
+    this->db->Put(leveldb::WriteOptions(), ssBlockHeightTimeKey.str(), block.blockHash);
+
     stringstream ssBlockSizeHeightKey;
     ssBlockSizeHeightKey << "block-size-" << setw(8) << setfill('0') << block.height;
     this->db->Put(leveldb::WriteOptions(), ssBlockSizeHeightKey.str(), std::to_string(block.byteSize));

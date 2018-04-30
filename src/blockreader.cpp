@@ -60,7 +60,7 @@ VtcBlockIndexer::Block VtcBlockIndexer::BlockReader::readBlock(string fileName, 
     ifstream blockFile(ss.str(), ios_base::in | ios_base::binary);
     
     if(!blockFile.is_open()) {
-        cerr << "Block file could not be opened" << endl;
+        cerr << "Block file [" << ss.str() << "] could not be opened" << endl;
         exit(0);
     }
 

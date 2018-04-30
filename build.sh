@@ -1,3 +1,3 @@
 #!/bin/sh
-docker build -t vtc-wallet-middleware-base build/base/
-docker build -t vtc-wallet-middleware .
+docker build -t blkidx-base build/base/
+docker build -t blkidx .
