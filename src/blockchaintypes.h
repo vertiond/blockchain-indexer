@@ -100,6 +100,9 @@ struct Transaction {
     // Position inside the blockfile where this transaction starts
     uint64_t filePosition;
 
+    // Size of the transaction in bytes
+    uint64_t byteSize;
+
     // Version bit for the transaction
     uint32_t version;
 

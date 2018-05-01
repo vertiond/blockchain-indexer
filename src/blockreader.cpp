@@ -180,6 +180,8 @@ VtcBlockIndexer::Transaction VtcBlockIndexer::BlockReader::readTransaction(istre
     blockFile.read(reinterpret_cast<char *>(&txHashBytes[0] + 4 + txitxoLength), sizeof(transaction.lockTime));
     transaction.txHash = VtcBlockIndexer::Utility::hashToReverseHex(VtcBlockIndexer::Utility::sha256(VtcBlockIndexer::Utility::sha256(txHashBytes)));
 
+    transaction.byteSize = endPosTx-startPosTx;
+        
     if(segwit) {
         blockFile.seekg(startPosTx, ios_base::beg);
         uint64_t length = endPosTx-startPosTx;
@@ -189,6 +191,9 @@ VtcBlockIndexer::Transaction VtcBlockIndexer::BlockReader::readTransaction(istre
     } else {
         transaction.txWitHash = string(transaction.txHash);
     }
+
+    
+
     blockFile.seekg(endPosTx, ios_base::beg);
 
     return transaction;

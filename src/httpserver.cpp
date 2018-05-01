@@ -103,8 +103,156 @@ void VtcBlockIndexer::HttpServer::getBlock(const shared_ptr<Session> session) {
     blockKey << "block-filePosition-" << setw(8) << setfill('0') << blockHeight;
 
 
-    cout << "Finding block fileposition " << blockKey.str() << endl;
+    std::string filePosition;
+    s = this->db->Get(leveldb::ReadOptions(), blockKey.str(), &filePosition);
+    if(!s.ok()) // no key found
+    {
+        const std::string message("Block not found");
+        session->close(404, message, {{"Content-Length",  std::to_string(message.size())}});
+        return;
+    }
+    
+    Block block = this->blockReader->readBlock(filePosition.substr(0,12),stoll(filePosition.substr(12,12)),blockHeight,false);
 
+    json jsonBlock;
+    jsonBlock["hash"] = block.blockHash;
+    jsonBlock["previousBlockHash"] = block.previousBlockHash;
+    jsonBlock["merkleRoot"] = block.merkleRoot;
+    jsonBlock["version"] = block.version;
+    jsonBlock["time"] = block.time;
+    jsonBlock["bits"] = block.bits;
+    jsonBlock["nonce"] = block.nonce;
+    jsonBlock["height"] = block.height;
+    jsonBlock["confirmations"] = highestBlock-block.height+1;
+    jsonBlock["size"] = block.byteSize;
+
+    json txs = json::array();
+
+
+    for (VtcBlockIndexer::Transaction tx : block.transactions) {
+        txs.push_back(tx.txHash);
+    }
+
+    jsonBlock["tx"] = txs;
+    jsonBlock["ismainchain"] = true;
+
+    string body = jsonBlock.dump();
+    
+    session->close( OK, body, { { "Content-Type",  "application/json" }, { "Content-Length",  std::to_string(body.size()) } } );
+}
+/*
+package models
+
+type ScriptSig struct {
+	Hex 				string					`json:"hex"`
+	Asm  				string 					`json:"asm"`
+}
+
+type TransactionVin struct {	
+	CoinBase 			string 						`json:"coinbase"`
+	Sequence  			int64						`json:"sequence"`
+	Number				int 						`json:"n"`
+	TxId 				string 						`json:"txid,omitempty"`
+	Vout 				int 						`json:"vout,omitempty"`
+	ScriptSig 			ScriptSig					`json:"scriptSig,omitempty"`
+	Address 			string 						`json:"addr,omitempty"`
+	ValueSatoshi		int64						`json:"valueSat,omitempty"`
+	Value 				float64 					`json:"value,omitempty"`
+	DoubleSpentTxID 	string 						`json:"doubleSpentTxID,omitempty"`
+}
+
+type ScriptPubKey struct {
+	Hex 				string					`json:"hex"`
+	Asm  				string 					`json:"asm"`
+	Addresses			[]string 				`json:"addresses"`
+	Type 				string 					`json:"type"`
+}
+
+type TransactionVout struct {
+	Value 				float64							`json:"value"`
+	Number 				int 							`json:"n"`
+	ScriptPubKey 		ScriptPubKey					`json:"scriptPubKey"`
+	SpentTxId 			string							`json:"spentTxId,omitempty"`
+	SpentIndex 			int 							`json:"spentIndex,omitempty"`
+	SpentHeight 		int  							`json:"spentHeight,omitempty"`
+}
+
+type Transaction struct {
+	TxId 				string					`json:"txid"`
+	Version				int 					`json:"version"`
+	LockTime 			int 					`json:"locktime"`
+	Vin 				[]TransactionVin 		`json:"vin"`
+	Vout 				[]TransactionVout	 	`json:"vout"`
+	BlockHash 			string 					`json:"blockhash"`
+	BlockHeight 		int 					`json:"blockheight"`
+	Confirmations 		int 					`json:"confirmations"`
+	Time 				int64 					`json:"time"`
+	BlockTime 			int64 					`json:"blocktime"`
+	IsCoinBase 			bool 					`json:"isCoinBase"`
+	ValueOut 			float64 				`json:"valueOut"`
+	Size 				int 					`json:"size"`
+	ValueIn 			float64 				`json:"valueIn"`
+	Fees	 			float64 				`json:"fees"`	
+}
+
+type TxsResponse struct {
+	PagesTotal			int 					`json:"pagesTotal"`
+	Txs					[]Transaction			`json:"txs"`
+}*/
+
+vector<string> VtcBlockIndexer::HttpServer::getAddressesForTxo(string txHash, uint64_t idx) {
+    vector<string> returnValue = {};
+    stringstream txoAddressKey;
+    txoAddressKey << txHash << setw(8) << setfill('0') << idx << "-address-";
+    string start(txoAddressKey.str() + "00000000");
+    string limit(txoAddressKey.str() + "99999999");
+    
+    leveldb::Iterator* it = this->db->NewIterator(leveldb::ReadOptions());
+    for (it->Seek(start);
+            it->Valid() && it->key().ToString() < limit;
+            it->Next()) {
+        returnValue.push_back(it->value().ToString());
+    }
+
+    return returnValue;
+}
+
+uint64_t VtcBlockIndexer::HttpServer::getValueForTxo(string txHash, uint64_t idx) {
+    stringstream txoValueKey;
+    txoValueKey << txHash << setw(8) << setfill('0') << idx << "-value";
+    string valueString;
+    leveldb::Status s = this->db->Get(leveldb::ReadOptions(), txoValueKey.str(), &valueString);
+    if(!s.ok()) // no key found
+    { 
+        return 0;
+    }
+    return stoll(valueString);
+}
+
+void VtcBlockIndexer::HttpServer::getBlockTransactions(const shared_ptr<Session> session) {
+    const auto request = session->get_request();
+    
+    string highestBlockString;
+    this->db->Get(leveldb::ReadOptions(),"highestblock",&highestBlockString);
+
+    uint64_t highestBlock = stoll(highestBlockString);
+
+    std::string blockHashString = request->get_path_parameter("hash","");
+    int pageNum = stoi(request->get_path_parameter("page","0"));
+
+    string blockHeightString;
+    leveldb::Status s = this->db->Get(leveldb::ReadOptions(),"block-hash-" + blockHashString,&blockHeightString);
+    if(!s.ok()) // no key found
+    { 
+        const std::string message("Block not found");
+        session->close(404, message, {{"Content-Length",  std::to_string(message.size())}});
+        return;
+    }
+
+    uint64_t blockHeight = stoll(blockHeightString);
+
+    stringstream blockKey;
+    blockKey << "block-filePosition-" << setw(8) << setfill('0') << blockHeight;
 
     std::string filePosition;
     s = this->db->Get(leveldb::ReadOptions(), blockKey.str(), &filePosition);
@@ -115,25 +263,99 @@ void VtcBlockIndexer::HttpServer::getBlock(const shared_ptr<Session> session) {
         return;
     }
     
-    cout << "Fileposition: " << filePosition << endl;
+    Block block = this->blockReader->readBlock(filePosition.substr(0,12),stoll(filePosition.substr(12,12)),blockHeight,false);
 
+    json response;
+    size_t leftOver = block.transactions.size() % 10;
 
-    Block block = this->blockReader->readBlock(filePosition.substr(0,12),stoll(filePosition.substr(12,12)),blockHeight,true);
+    response["pagesTotal"] = (block.transactions.size() - leftOver) / 10 + (leftOver > 0 ? 1 : 0);
+    json txs = json::array();
 
-    json jsonBlock;
-    jsonBlock["blockHash"] = block.blockHash;
-    jsonBlock["previousBlockHash"] = block.previousBlockHash;
-    jsonBlock["merkleRoot"] = block.merkleRoot;
-    jsonBlock["version"] = block.version;
-    jsonBlock["time"] = block.time;
-    jsonBlock["bits"] = block.bits;
-    jsonBlock["nonce"] = block.nonce;
-    jsonBlock["height"] = block.height;
-    jsonBlock["confirmations"] = highestBlock-block.height+1;
-    string body = jsonBlock.dump();
+    int pageStart = 10 * pageNum;
+    int maxIndex = block.transactions.size()-1;
+    int pageEnd = std::min(pageStart+10, maxIndex);
+
+    if(pageEnd >= pageStart) {
+        for (int i = pageStart; i <= pageEnd; i++) {
+            VtcBlockIndexer::Transaction tx = block.transactions.at(i);
+            json jtx;
+            jtx["txid"] = tx.txHash;
+            jtx["version"] = tx.version;
+            jtx["locktime"] = tx.lockTime;
+            jtx["size"] = tx.byteSize;
+            jtx["confirmations"] = highestBlock-block.height+1;
+            jtx["blockhash"] = block.blockHash;
+            jtx["blockheight"] = block.height;
+            jtx["isCoinBase"] = false;
+            json vins = json::array();
+            for (VtcBlockIndexer::TransactionInput txi : tx.inputs) {
+                if(txi.coinbase) jtx["isCoinBase"] = true;
+
+                json vin;
+                vin["sequence"] = txi.sequence;
+                vin["n"] = txi.index;
+                vin["txid"] = txi.txHash;
+                vin["vout"] = txi.txoIndex;
+                json scriptSig;
+                scriptSig["hex"] = Utility::hashToHex(txi.script);
+                vin["scriptSig"] = scriptSig;
+                vector<string> addresses = getAddressesForTxo(txi.txHash, txi.txoIndex);
+                string addressesConcatenated = "";
+                
+                for(size_t i = 0; i < addresses.size(); i++) {
+                    addressesConcatenated += (i > 0 ? " " : "") + addresses[i];
+                }
+                vin["addr"] = addressesConcatenated;
+                vin["valueSat"] = getValueForTxo(txi.txHash, txi.txoIndex);
+                
+                vins.push_back(vin);
+            }
+            jtx["vin"] = vins;
+            json vouts = json::array();
+            for (VtcBlockIndexer::TransactionOutput txo : tx.outputs) {
+                json vout;
+                
+                string spentTx;
+                stringstream txoKey;
+                txoKey << "txo-" << tx.txHash << "-" << setw(8) << setfill('0') << txo.index << "-spent";
+
+                leveldb::Status s = this->db->Get(leveldb::ReadOptions(), txoKey.str(), &spentTx);
+                if(s.ok()) // no key found, not spent. Add balance.
+                {
+                    vout["spentTxId"] = spentTx.substr(64, 64);
+                    vout["spentIndex"] = stoll(spentTx.substr(128, 8));
+                    vout["spentBlock"] = spentTx.substr(0, 64);
+                    std::string blockHeightString;
+                    s = this->db->Get(leveldb::ReadOptions(), "block-hash-" + spentTx.substr(0, 64), &blockHeightString);
+                    if(s.ok()) 
+                    {
+                        vout["spentHeight"] = stoll(blockHeightString);
+                    }
+                }
+
+                json scriptPubKey;
+                scriptPubKey["hex"] = Utility::hashToHex(txo.script);
+                scriptPubKey["addresses"] = json::array();
+                vector<string> addresses = getAddressesForTxo(tx.txHash, txo.index);
+                for(string address : addresses) {
+                    scriptPubKey["addresses"].push_back(address);
+                }
+                scriptPubKey["type"] = scriptSolver->getScriptTypeName(txo.script);
+                vout["scriptPubKey"] = scriptPubKey;
+                vout["valueSat"] = txo.value;
+                
+                vouts.push_back(vout);
+            }
+            jtx["vout"] = vouts;
+            txs.push_back(jtx);
+        }
+    }
+    response["txs"] = txs;
+    string body = response.dump();
     
     session->close( OK, body, { { "Content-Type",  "application/json" }, { "Content-Length",  std::to_string(body.size()) } } );
 }
+
 
 void VtcBlockIndexer::HttpServer::getTransactionProof(const shared_ptr<Session> session) {
     const auto request = session->get_request();
@@ -446,7 +668,7 @@ void VtcBlockIndexer::HttpServer::addressTxos( const shared_ptr< Session > sessi
                 }
             } else {
                 if(unspent == 1) continue;
-                txoObj["spender"] = spentTx.substr(65, 64);
+                txoObj["spender"] = spentTx.substr(64, 64);
 
             }
 
@@ -554,13 +776,12 @@ void VtcBlockIndexer::HttpServer::outpointSpend( const shared_ptr< Session > ses
     {
         stringstream txoId;
         txoId << "txo-" << txid << "-" << setw(8) << setfill('0') << vout << "-spent";
-        cout << "Checking outpoint spent " << txoId.str() << endl;
         string spentTx;
 
         s = this->db->Get(leveldb::ReadOptions(), txoId.str(), &spentTx);
         j["spent"] = s.ok();
         if(s.ok()) {
-            j["spender"] = spentTx.substr(65, 64);
+            j["spender"] = spentTx.substr(64, 64);
             
             string blockHeightStr;
             stringstream blockHashId;
@@ -644,7 +865,7 @@ void VtcBlockIndexer::HttpServer::outpointSpends( const shared_ptr< Session > se
                         string spentTx;
                         s = this->db->Get(leveldb::ReadOptions(), txoId.str(), &spentTx);
                         if(s.ok()) {
-                            j["spender"] = spentTx.substr(65, 64);
+                            j["spender"] = spentTx.substr(64, 64);
                             j["spent"] = true;
                             string blockHeightStr;
                             stringstream blockHashId;
@@ -745,11 +966,13 @@ void VtcBlockIndexer::HttpServer::run()
     blocksResource->set_path( "/blocks" );
     blocksResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::getBlocks, this, std::placeholders::_1) );
 
-
     auto blockResource = make_shared<Resource>();
     blockResource->set_path( "/block/{hash: [0-9a-f]*}" );
     blockResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::getBlock, this, std::placeholders::_1) );
 
+    auto blockTransactionResource = make_shared<Resource>();
+    blockTransactionResource->set_path( "/blocktxs/{hash: [0-9a-f]*}/{page: [0-9]*}" );
+    blockTransactionResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::getBlockTransactions, this, std::placeholders::_1) );
 
     auto blocksByDateResource = make_shared<Resource>();
     blocksByDateResource->set_path( "/blocksbydate" );
@@ -763,6 +986,8 @@ void VtcBlockIndexer::HttpServer::run()
     auto syncResource = make_shared<Resource>();
     syncResource->set_path( "/sync" );
     syncResource->set_method_handler("GET", bind(&VtcBlockIndexer::HttpServer::sync, this, std::placeholders::_1) );
+
+
 
 
     auto settings = make_shared< Settings >( );
@@ -780,6 +1005,7 @@ void VtcBlockIndexer::HttpServer::run()
     service.publish( outpointSpendsResource );
     service.publish( sendRawTransactionResource );
     service.publish( blockResource );
+    service.publish( blockTransactionResource );
     service.publish( blocksResource );
     service.publish( blocksByDateResource );
     service.publish( mempoolResource );

@@ -28,6 +28,19 @@
 #include "blockchaintypes.h"
 using namespace std;
 
+#define SCRIPT_TYPE_P2PKH               0x01
+#define SCRIPT_TYPE_P2PK                0x02
+#define SCRIPT_TYPE_P2SH                0x03
+#define SCRIPT_TYPE_P2WPKH              0x04
+#define SCRIPT_TYPE_P2WSH               0x05
+#define SCRIPT_TYPE_NULLDATA            0x06
+#define SCRIPT_TYPE_MULTISIG            0x07
+#define SCRIPT_TYPE_P2CPK               0x08
+#define SCRIPT_TYPE_KNOWN_NONSTANDARD   0x09
+#define SCRIPT_TYPE_UNKNOWN             0xFF
+
+
+
 namespace VtcBlockIndexer {
 
 /**
@@ -40,6 +53,14 @@ public:
     /** Constructs a BlockIndexer instance using the given block data directory
      */
     ScriptSolver();
+
+    /** Get the script type
+     */
+    uint8_t getScriptType(vector<unsigned char> scriptString);
+
+    // Get a friendly name for the script type
+    string getScriptTypeName(vector<unsigned char> scriptString);
+
 
     /** Read addresses from script
      */

@@ -210,6 +210,17 @@ bool VtcBlockIndexer::BlockIndexer::indexBlock(Block block) {
                 stringstream blockTxoKey;
                 blockTxoKey << block.blockHash << "-txo-" << setw(8) << setfill('0') << nextIndex;
                 this->db->Put(leveldb::WriteOptions(), blockTxoKey.str(), txoKey.str());
+
+
+                stringstream txoAddressKey;
+                txoAddressKey << tx.txHash << setw(8) << setfill('0') << out.index << "-address";
+                nextIndex = getNextTxoIndex(txoAddressKey.str());
+                txoAddressKey << "-" << setw(8) << setfill('0') << nextIndex;
+                this->db->Put(leveldb::WriteOptions(), txoAddressKey.str(), address);
+
+                stringstream txoValueKey;
+                txoValueKey << tx.txHash << setw(8) << setfill('0') << out.index << "-value";
+                this->db->Put(leveldb::WriteOptions(), txoValueKey.str(), std::to_string(out.value));
             }
         }
 
@@ -220,7 +231,7 @@ bool VtcBlockIndexer::BlockIndexer::indexBlock(Block block) {
                 txSpentKey << "txo-" << txi.txHash << "-" << setw(8) << setfill('0') << txi.txoIndex << "-spent";
                 
                 stringstream spendingTx;
-                spendingTx << block.blockHash << "-" << tx.txHash;
+                spendingTx << block.blockHash << tx.txHash << setw(8) << setfill('0') << txi.index;
                 
                 this->db->Put(leveldb::WriteOptions(), txSpentKey.str(), spendingTx.str());
 

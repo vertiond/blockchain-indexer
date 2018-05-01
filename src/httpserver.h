@@ -72,12 +72,18 @@ namespace VtcBlockIndexer {
             
             /* REST Api for returning list of blocks by date */
             void getBlocksByDate( const shared_ptr< Session > session );
+
+            /* REST Api for returning the TXs inside a block */
+            void getBlockTransactions( const shared_ptr< Session > session );
             
             /* REST Api for returning list of transactionids in the memory pool */
             void mempoolTransactionIds( const shared_ptr< Session > session );
             
             /* REST Api for returning sync status */
             void sync( const shared_ptr< Session > session );
+
+            vector<string> getAddressesForTxo(string txHash, uint64_t idx);
+            uint64_t getValueForTxo(string txHash, uint64_t idx);
 
             /* REST Api for sending a hex transaction on the VTC p2p network*/
             void sendRawTransaction( const shared_ptr< Session > session );

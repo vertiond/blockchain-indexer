@@ -32,11 +32,9 @@ VtcBlockIndexer::ScriptSolver::ScriptSolver() {
 
 }
 
-vector<string> VtcBlockIndexer::ScriptSolver::getAddressesFromScript(vector<unsigned char> script) {
-    vector<string> addresses;
+uint8_t  VtcBlockIndexer::ScriptSolver::getScriptType(vector<unsigned char> script) {
     uint64_t scriptSize = script.size();
-    bool parsed = false;
-
+    
     // The most common output script type that pays to hash160(pubKey)
     if(
         
@@ -76,39 +74,35 @@ vector<string> VtcBlockIndexer::ScriptSolver::getAddressesFromScript(vector<unsi
               
         
     ) { 
-        addresses.push_back(VtcBlockIndexer::Utility::ripeMD160ToP2PKAddress(vector<unsigned char>(&script[3], &script[23])));
-        parsed = true;
+        return SCRIPT_TYPE_P2PKH;
     }
 
     // Output script commonly found in block reward TX, that pays to an explicit pubKey
     if(
-            67==scriptSize                &&  
-              65==script.at(0)            &&  // OP_PUSHDATA(65)
-            0xAC==script.at(scriptSize-1) // OP_CHECKSIG
-              
-    ) {
-        addresses.push_back(VtcBlockIndexer::Utility::publicKeyToAddress(vector<unsigned char>(&script[1], &script[66])));
-        parsed = true;
+                67==scriptSize                &&  
+                65==script.at(0)            &&  // OP_PUSHDATA(65)
+                0xAC==script.at(scriptSize-1) // OP_CHECKSIG
+                
+        ) {
+        return SCRIPT_TYPE_P2PK;
     }
 
     // Pay to compressed pubkey script
-    if(
+     if(
         35==scriptSize                &&
         0x21==script.at(0)            &&  // OP_PUSHDATA(33)
         0xAC==script.at(scriptSize-1)     // OP_CHECKSIG
     ) {
-        addresses.push_back(VtcBlockIndexer::Utility::publicKeyToAddress(vector<unsigned char>(&script[1], &script[34])));
-        parsed = true;
+        return SCRIPT_TYPE_P2CPK;
     }
-    
-    // P2WSH
+
+    // Pay to witness script hash
     if(
         22 == scriptSize            &&
         0x00 == script.at(0)        &&  
         0x14 == script.at(1)        
     ) {
-        addresses.push_back(VtcBlockIndexer::Utility::bech32Address(vector<unsigned char>(&script[2], &script[22])));
-        parsed = true;
+        return SCRIPT_TYPE_P2WSH;
     }
 
     // P2WPKH
@@ -117,33 +111,10 @@ vector<string> VtcBlockIndexer::ScriptSolver::getAddressesFromScript(vector<unsi
         0x00 == script.at(0)        &&  
         0x20 == script.at(1)        
     ) {
-        addresses.push_back(VtcBlockIndexer::Utility::bech32Address(vector<unsigned char>(&script[2], &script[34])));
-        parsed = true;
+        return SCRIPT_TYPE_P2WPKH;
     }
 
-    // NULLDATA script. starts with OP_RETURN followed by arbitrary data and no further opcodes. Not needed to be stored in UTXO database. So Ignore.
-    if(
-        scriptSize > 0        && 
-        0x6A == script.at(0)    
-    ) {
-        uint32_t pos = 1;
-        
-        bool foundOpcodes = false;
-        while(pos < script.size()) {
-            if(script.at(pos) >= 0x01 && script.at(pos) <= 0x4B) { 
-                pos += script.at(pos) + 1;
-            } else {
-                foundOpcodes = true;
-                break;
-            } 
-        }
-
-        if(!foundOpcodes)
-            parsed = true;
-    }
-
-    // A modern output script type, that pays to hash160(script)
-    if(
+     if(
         23 == scriptSize                &&
             0xA9==script.at(0)             &&  // OP_HASH160
               20==script.at(1)             &&  // OP_PUSHDATA(20)
@@ -151,152 +122,154 @@ vector<string> VtcBlockIndexer::ScriptSolver::getAddressesFromScript(vector<unsi
               
         
     ) {
-        addresses.push_back(VtcBlockIndexer::Utility::ripeMD160ToP2SHAddress(vector<unsigned char>(&script[2], &script[22])));
-        parsed = true;
+        return SCRIPT_TYPE_P2SH;
     }
 
-    // OP_PUSHDATA(32) + data only (Found in litecoin chain - nonstandard script)
-    // Public block explorers show these as "unknown" (https://bchain.info/LTC/tx/265278e51d1b29cdce906a858251b7ce15e2dab09de7dede0acb4c629f780b91)
+    // NULLDATA
     if(
-        
-            33==scriptSize                  &&
-            0x20==script.at(0)             
+            scriptSize > 0        && 
+            0x6A == script.at(0)    
+        ) {
+            uint32_t pos = 1;
             
-        
-    ) {
-        
-        parsed = true;
+            bool foundOpcodes = false;
+            while(pos < script.size()) {
+                if(script.at(pos) >= 0x01 && script.at(pos) <= 0x4B) { 
+                    pos += script.at(pos) + 1;
+                } else {
+                    foundOpcodes = true;
+                    break;
+                } 
+            }
+
+        if(!foundOpcodes)
+            return SCRIPT_TYPE_NULLDATA;
+        else
+            return SCRIPT_TYPE_UNKNOWN;
     }
 
-    // OP_PUSHDATA(36) + data only (Found in litecoin chain - nonstandard script)
-    // Public block explorers show these as "unknown" (http://explorer.litecoin.net/tx/936e8ed1cfca736320fdced61c2d03886b232497ea975e41d101f1d83bb74c44)
-    if(
-        
-            37==scriptSize                  &&
-            0x24==script.at(0)             
-            
-        
-    ) {
-        
-        parsed = true;
+    if(isMultiSig(script)) {
+        return SCRIPT_TYPE_MULTISIG;
     }
 
-    // OP_PUSHDATA(20) + data only. Unparseable (BTC)
-    // Public block explorers show these as "unknown" (https://blockchain.info/tx/b8fd633e7713a43d5ac87266adc78444669b987a56b3a65fb92d58c2c4b0e84d)
+    
     if(
-        
-            24==scriptSize                  &&
-            0x14==script.at(0)             
-            
-        
-    ) {
-        
-        parsed = true;
-    }
-
-
-    // Unknown (seems malformed) output script found on Litecoin in p2pool blocks
-    // For example https://bchain.info/LTC/tx/8f1220670b5d4ade8f9c6a82fde3d88a28d2e1c290f2edc6d7a7a13aa0352fc7 
-    if(
-        6 == scriptSize                &&
+        // OP_PUSHDATA(32) + data only (Found in litecoin chain - nonstandard script)
+        // Public block explorers show these as "unknown" (https://bchain.info/LTC/tx/265278e51d1b29cdce906a858251b7ce15e2dab09de7dede0acb4c629f780b91)  
+        (   33==scriptSize                  &&
+            0x20==script.at(0))
+        ||
+        // OP_PUSHDATA(36) + data only (Found in litecoin chain - nonstandard script)
+        // Public block explorers show these as "unknown" (http://explorer.litecoin.net/tx/936e8ed1cfca736320fdced61c2d03886b232497ea975e41d101f1d83bb74c44)
+        (   37==scriptSize                  &&
+            0x24==script.at(0))
+        ||
+        // OP_PUSHDATA(20) + data only. Unparseable (BTC)
+        // Public block explorers show these as "unknown" (https://blockchain.info/tx/b8fd633e7713a43d5ac87266adc78444669b987a56b3a65fb92d58c2c4b0e84d)
+        (   24==scriptSize                  &&
+            0x14==script.at(0))
+        ||
+        // Unknown (seems malformed) output script found on Litecoin in p2pool blocks
+        // For example https://bchain.info/LTC/tx/8f1220670b5d4ade8f9c6a82fde3d88a28d2e1c290f2edc6d7a7a13aa0352fc7 
+        (   6 == scriptSize                &&
             0x73==script.at(0)             &&  // OP_IFDUP
             0x63==script.at(1)             &&  // OP_IF
             0x72==script.at(2)             &&  // OP_2SWAP
             0x69==script.at(3)             &&  // OP_VERIFY
             0x70==script.at(4)             &&  // OP_2OVER
-            0x74==script.at(5)              // OP_DEPTH
-            
-        
-    ) {
-
-        parsed = true;
+            0x74==script.at(5))              // OP_DEPTH)
+        ||
+        // A challenge: anyone who can find X such that 0==RIPEMD160(X) stands to earn a bunch of coins
+        (
+            0x76==script[0] &&                  // OP_DUP
+            0xA9==script[1] &&                  // OP_HASH160
+            0x00==script[2] &&                  // OP_0
+            0x88==script[3] &&                  // OP_EQUALVERIFY
+            0xAC==script[4])                    // OP_CHECKSIG
+    )
+    {
+        return SCRIPT_TYPE_KNOWN_NONSTANDARD;
     }
 
-    if(isMultiSig(script)) {
-        uint32_t pos = 1;
-        while(pos < script.size()-2) {
-            if(script.at(pos) == 0x21) {
-                addresses.push_back(VtcBlockIndexer::Utility::publicKeyToAddress(vector<unsigned char>(&script[pos+1], &script[pos+34]))); 
-                pos += 34;
-                parsed = true;
-            }
-            else if(script.at(pos) == 0x41) {
-                addresses.push_back(VtcBlockIndexer::Utility::publicKeyToAddress(vector<unsigned char>(&script[pos+1], &script[pos+66])));
-                pos += 66;
-                parsed = true;
-            }
-            else
-            {
-                pos = script.size();
-            }
-        }
-        
-    }
+    return SCRIPT_TYPE_UNKNOWN;
+}
 
-    // A challenge: anyone who can find X such that 0==RIPEMD160(X) stands to earn a bunch of coins
-    
-    if(
-        0x76==script[0] &&                  // OP_DUP
-        0xA9==script[1] &&                  // OP_HASH160
-        0x00==script[2] &&                  // OP_0
-        0x88==script[3] &&                  // OP_EQUALVERIFY
-        0xAC==script[4]                     // OP_CHECKSIG
-    ) {
-        parsed = true;
-    }
+string VtcBlockIndexer::ScriptSolver::getScriptTypeName(vector<unsigned char> script) {
+    vector<string> scriptTypeNames = {"", "pay-to-pubkeyhash", "pay-to-pubkey", "pay-to-scripthash", "pay-to-witness-pubkeyhash", "pay-to-witnessscripthash","nulldata","multisig","pay-to-pubkey"};
+    uint8_t scriptType = getScriptType(script);
+    if(scriptType == SCRIPT_TYPE_UNKNOWN) return string("Unknown");
+    return scriptTypeNames.at(scriptType);
+}
 
+vector<string> VtcBlockIndexer::ScriptSolver::getAddressesFromScript(vector<unsigned char> script) {
+    vector<string> addresses;
 
-
-
-    if(!parsed) {
-        stringstream ssScript;
-        for(uint64_t i = 0; i < scriptSize; i++)
+    uint8_t scriptType = getScriptType(script);
+    switch(scriptType) {
+        case SCRIPT_TYPE_P2PKH:
         {
-            ssScript << hex << setw(2) << setfill('0') << static_cast<int>(script.at(i));
+            addresses.push_back(VtcBlockIndexer::Utility::ripeMD160ToP2PKAddress(vector<unsigned char>(&script[3], &script[23])));
+            break;
         }
-        cout << "Unrecognized script : [" << ssScript.str() << "]" << endl;
+        case SCRIPT_TYPE_P2PK:
+        {
+            addresses.push_back(VtcBlockIndexer::Utility::publicKeyToAddress(vector<unsigned char>(&script[1], &script[66])));
+            break;
+        }
+        case SCRIPT_TYPE_P2CPK:
+        {
+            addresses.push_back(VtcBlockIndexer::Utility::publicKeyToAddress(vector<unsigned char>(&script[1], &script[34])));
+            break;
+        }
+        case SCRIPT_TYPE_P2WSH:
+        {
+            addresses.push_back(VtcBlockIndexer::Utility::bech32Address(vector<unsigned char>(&script[2], &script[22])));
+            break;
+        }
+        case SCRIPT_TYPE_P2WPKH:
+        {
+            addresses.push_back(VtcBlockIndexer::Utility::bech32Address(vector<unsigned char>(&script[2], &script[34])));
+            break;
+        }
+        case SCRIPT_TYPE_P2SH:
+        {
+            addresses.push_back(VtcBlockIndexer::Utility::ripeMD160ToP2SHAddress(vector<unsigned char>(&script[2], &script[22])));
+            break;
+        }
+        case SCRIPT_TYPE_MULTISIG:
+        {
+            uint32_t pos = 1;
+            while(pos < script.size()-2) {
+                if(script.at(pos) == 0x21) {
+                    addresses.push_back(VtcBlockIndexer::Utility::publicKeyToAddress(vector<unsigned char>(&script[pos+1], &script[pos+34]))); 
+                    pos += 34;
+                }
+                else if(script.at(pos) == 0x41) {
+                    addresses.push_back(VtcBlockIndexer::Utility::publicKeyToAddress(vector<unsigned char>(&script[pos+1], &script[pos+66])));
+                    pos += 66;
+                }
+                else pos = script.size();
+            }
+            break;
+        }
+        case SCRIPT_TYPE_NULLDATA:
+        {
+            // Ignore nulldata entries.
+            break;
+        }
+        case SCRIPT_TYPE_KNOWN_NONSTANDARD:
+        {
+            // Known non-standard format that we can safely ignore
+            break;            
+        }
+        case SCRIPT_TYPE_UNKNOWN:
+        default:
+        {
+            cout << "Unrecognized script : [" << Utility::hashToHex(script) << "]" << endl;
+        }
     }
 
     return addresses;
-/*
-    
-
-    int m = 0;
-    int n = 0;
-    std::vector<uint160_t> addresses;
-    if(
-        isMultiSig(
-            m,
-            n,
-            addresses,
-            script,
-            scriptSize
-        )
-    ) {
-        packMultiSig(pubKeyHash, addresses, m, n);
-        addrType[0] = 8;
-        return 4;
-    }
-
-    // Broken output scripts that were created by p2pool for a while
-    if(
-        0x73==script[0] &&                  // OP_IFDUP
-        0x63==script[1] &&                  // OP_IF
-        0x72==script[2] &&                  // OP_2SWAP
-        0x69==script[3] &&                  // OP_VERIFY
-        0x70==script[4] &&                  // OP_2OVER
-        0x74==script[5]                     // OP_DEPTH
-    ) {
-        return -2;
-    }
-
-    // A non-functional "comment" script
-    if(isCommentScript(script, scriptSize)) {
-        return -3;
-    }
-
-    
-    return addresses;*/
 }
 
 bool VtcBlockIndexer::ScriptSolver::isMultiSig(vector<unsigned char> script) {
