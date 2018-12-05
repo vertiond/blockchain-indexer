@@ -110,6 +110,7 @@ bool VtcBlockIndexer::BlockIndexer::hasIndexedBlock(string blockHash, int blockH
 bool VtcBlockIndexer::BlockIndexer::indexBlock(Block block) {
     //cout << "Indexing block " << block.blockHash << " (Height " << block.height << ")" << endl;
     
+    
     stringstream ss;
     ss << "block-" << setw(8) << setfill('0') << block.height;
     
@@ -137,37 +138,41 @@ bool VtcBlockIndexer::BlockIndexer::indexBlock(Block block) {
         }
     }
     
-    this->db->Put(leveldb::WriteOptions(), ss.str(), block.blockHash);
+    leveldb::WriteBatch batch;
+    batch.Put(ss.str(), block.blockHash);
+
     
     stringstream ssBlockFilePositionKey;
     ssBlockFilePositionKey << "block-filePosition-" << setw(8) << setfill('0') << block.height;
     stringstream ssBlockFilePositionValue;
     ssBlockFilePositionValue << block.fileName << setw(12) << setfill('0') << block.filePosition;
 
-    this->db->Put(leveldb::WriteOptions(), ssBlockFilePositionKey.str(), ssBlockFilePositionValue.str());
+  
+    batch.Put(ssBlockFilePositionKey.str(), ssBlockFilePositionValue.str());
+
     
     stringstream ssBlockHashHeightKey;
     ssBlockHashHeightKey << "block-hash-" << block.blockHash;
     stringstream ssBlockHashHeightValue;
     ssBlockHashHeightValue << setw(8) << setfill('0') << block.height;
 
-    this->db->Put(leveldb::WriteOptions(), ssBlockHashHeightKey.str(), ssBlockHashHeightValue.str());
+    batch.Put(ssBlockHashHeightKey.str(), ssBlockHashHeightValue.str());
     
     stringstream ssBlockTimeHeightKey;
     ssBlockTimeHeightKey << "block-time-" << setw(8) << setfill('0') << block.height;
-    this->db->Put(leveldb::WriteOptions(), ssBlockTimeHeightKey.str(), std::to_string(block.time));
+    batch.Put(ssBlockTimeHeightKey.str(), std::to_string(block.time));
     
     stringstream ssBlockHeightTimeKey;
     ssBlockHeightTimeKey << "block-hash-time-" << setw(12) << setfill('0') << block.time;
-    this->db->Put(leveldb::WriteOptions(), ssBlockHeightTimeKey.str(), block.blockHash);
+    batch.Put(ssBlockHeightTimeKey.str(), block.blockHash);
 
     stringstream ssBlockSizeHeightKey;
     ssBlockSizeHeightKey << "block-size-" << setw(8) << setfill('0') << block.height;
-    this->db->Put(leveldb::WriteOptions(), ssBlockSizeHeightKey.str(), std::to_string(block.byteSize));
+    batch.Put(ssBlockSizeHeightKey.str(), std::to_string(block.byteSize));
     
     stringstream ssBlockTxCountHeightKey;
     ssBlockTxCountHeightKey << "block-txcount-"  << setw(8) << setfill('0') << block.height;
-    this->db->Put(leveldb::WriteOptions(), ssBlockTxCountHeightKey.str(), std::to_string(block.transactions.size()));
+    batch.Put(ssBlockTxCountHeightKey.str(), std::to_string(block.transactions.size()));
 
     int txIndex = -1;
     // TODO: Verify block integrity
@@ -175,19 +180,18 @@ bool VtcBlockIndexer::BlockIndexer::indexBlock(Block block) {
         txIndex++;
         stringstream blockTxKey;
         blockTxKey << "block-" << block.blockHash << "-tx-" << setw(8) << setfill('0') << txIndex;
-        this->db->Put(leveldb::WriteOptions(), blockTxKey.str(), tx.txHash);
+        batch.Put(blockTxKey.str(), tx.txHash);
 
         stringstream ssTxFilePositionKey;
         ssTxFilePositionKey << "tx-filePosition-" << tx.txHash;
         stringstream ssTxFilePositionValue;
         ssTxFilePositionValue << block.fileName << setw(12) << setfill('0') << tx.filePosition;
     
-        this->db->Put(leveldb::WriteOptions(), ssTxFilePositionKey.str(), ssTxFilePositionValue.str());
+        batch.Put(ssTxFilePositionKey.str(), ssTxFilePositionValue.str());
 
         stringstream txBlockKey;
         txBlockKey << "tx-" << tx.txHash << "-block";
-        this->db->Put(leveldb::WriteOptions(), txBlockKey.str(), block.blockHash);
-
+        batch.Put(txBlockKey.str(), block.blockHash);
 
         for(VtcBlockIndexer::TransactionOutput out : tx.outputs) {
             vector<string> addresses = this->scriptSolver->getAddressesFromScript(out.script);
@@ -195,33 +199,33 @@ bool VtcBlockIndexer::BlockIndexer::indexBlock(Block block) {
                 if(scriptSolver->isMultiSig(out.script)) {
                     stringstream txoMultiSigKey;
                     txoMultiSigKey << "multisigtx-" << tx.txHash << "-" << setw(8) << setfill('0') << out.index;
-                    this->db->Put(leveldb::WriteOptions(), txoMultiSigKey.str(), std::to_string(scriptSolver->requiredSignatures(out.script)));
+                    batch.Put(txoMultiSigKey.str(), std::to_string(scriptSolver->requiredSignatures(out.script)));
                 }
             }
+        
             for(string address : addresses) {
                 int nextIndex = getNextTxoIndex(address + "-txo");
                 stringstream txoKey;
                 txoKey << address << "-txo-" << setw(8) << setfill('0') << nextIndex;
                 stringstream txoValue;
                 txoValue << tx.txHash << setw(8) << setfill('0') << out.index << setw(8) << setfill('0') << block.height << out.value;
-                this->db->Put(leveldb::WriteOptions(), txoKey.str(), txoValue.str());
+                batch.Put(txoKey.str(), txoValue.str());
 
                 nextIndex = getNextTxoIndex(block.blockHash + "-txo");
                 stringstream blockTxoKey;
                 blockTxoKey << block.blockHash << "-txo-" << setw(8) << setfill('0') << nextIndex;
-                this->db->Put(leveldb::WriteOptions(), blockTxoKey.str(), txoKey.str());
+                batch.Put(blockTxoKey.str(), txoKey.str());
 
 
                 stringstream txoAddressKey;
                 txoAddressKey << tx.txHash << setw(8) << setfill('0') << out.index << "-address";
                 nextIndex = getNextTxoIndex(txoAddressKey.str());
                 txoAddressKey << "-" << setw(8) << setfill('0') << nextIndex;
-                this->db->Put(leveldb::WriteOptions(), txoAddressKey.str(), address);
-
-                stringstream txoValueKey;
-                txoValueKey << tx.txHash << setw(8) << setfill('0') << out.index << "-value";
-                this->db->Put(leveldb::WriteOptions(), txoValueKey.str(), std::to_string(out.value));
+                batch.Put(txoAddressKey.str(), address);
             }
+            stringstream txoValueKey;
+            txoValueKey << tx.txHash << setw(8) << setfill('0') << out.index << "-value";
+            batch.Put(txoValueKey.str(), std::to_string(out.value));
         }
 
         for(VtcBlockIndexer::TransactionInput txi : tx.inputs) {
@@ -233,18 +237,21 @@ bool VtcBlockIndexer::BlockIndexer::indexBlock(Block block) {
                 stringstream spendingTx;
                 spendingTx << block.blockHash << tx.txHash << setw(8) << setfill('0') << txi.index;
                 
-                this->db->Put(leveldb::WriteOptions(), txSpentKey.str(), spendingTx.str());
+                batch.Put(txSpentKey.str(), spendingTx.str());
 
                 int nextIndex = getNextTxoIndex(block.blockHash + "-txospent");
                 stringstream blockTxoSpentKey;
                 blockTxoSpentKey << block.blockHash << "-txospent-" << setw(8) << setfill('0') << nextIndex;
-                this->db->Put(leveldb::WriteOptions(), blockTxoSpentKey.str(), txSpentKey.str());
+                batch.Put(blockTxoSpentKey.str(), txSpentKey.str());
             }
         }
         this->mempoolMonitor->transactionIndexed(tx.txHash);
     }
 
+    
+    this->db->Write(leveldb::WriteOptions(), &batch);
 
+ 
 
     return true;
 }

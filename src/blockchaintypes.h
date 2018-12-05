@@ -42,7 +42,11 @@ struct ScannedBlock {
 
     // The hash of the previous block used to form the chain. This string is the the "reverse hash" used on block explorers
     string previousBlockHash; 
+
+    // The block is part of the main chain
+    bool mainChain;
 };
+
 
 // Describes a transaction output inside a blockchain transaction
 struct TransactionOutput {
@@ -146,6 +150,26 @@ struct Block {
 
     // The list of transactions inside this block
     vector<Transaction> transactions;
+
+    bool mainChain;
+};
+
+
+struct PotentialDoubleSpend {
+    Transaction tx;
+    Block block;
+};
+
+struct DoubleSpentOutpoint {
+    std::string outpoint;
+    Transaction alsoSpentInTx;
+    Block alsoSpentInBlock;
+};
+
+struct DoubleSpend {
+    Transaction tx;
+    Block block;
+    vector<DoubleSpentOutpoint> outpoints;
 };
 
 

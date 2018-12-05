@@ -181,6 +181,7 @@ uint8_t  VtcBlockIndexer::ScriptSolver::getScriptType(vector<unsigned char> scri
         ||
         // A challenge: anyone who can find X such that 0==RIPEMD160(X) stands to earn a bunch of coins
         (
+            scriptSize == 5 &&
             0x76==script[0] &&                  // OP_DUP
             0xA9==script[1] &&                  // OP_HASH160
             0x00==script[2] &&                  // OP_0
@@ -203,6 +204,7 @@ string VtcBlockIndexer::ScriptSolver::getScriptTypeName(vector<unsigned char> sc
 
 vector<string> VtcBlockIndexer::ScriptSolver::getAddressesFromScript(vector<unsigned char> script) {
     vector<string> addresses;
+
 
     uint8_t scriptType = getScriptType(script);
     switch(scriptType) {
@@ -265,6 +267,7 @@ vector<string> VtcBlockIndexer::ScriptSolver::getAddressesFromScript(vector<unsi
         case SCRIPT_TYPE_UNKNOWN:
         default:
         {
+            cout << "Before unrecognized script" << endl;
             cout << "Unrecognized script : [" << Utility::hashToHex(script) << "]" << endl;
         }
     }

@@ -1,0 +1,15 @@
+version: "2"
+services:
+
+  vtc-middleware-cpp-main:
+    image: blkidx
+    restart: always
+    volumes:
+      - ./blocks:/blocks
+      - ./coins:/coins
+    command: --coinParams=/coins/vertcoin-mainnet.json --dumpDoubleSpends yes
+
+networks:    
+  default:
+    external:
+      name: blockchain-indexer

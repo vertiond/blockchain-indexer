@@ -31,8 +31,10 @@
 #include "mempoolmonitor.h"
 #include "blockindexer.h"
 #include "blockreader.h"
+#include "json.hpp"
 
 using namespace std;
+using json = nlohmann::json;
 
 namespace VtcBlockIndexer {
 
@@ -53,8 +55,13 @@ public:
 
     /** Updates the blockchain index incrementally */
     void updateIndex();
+
+    /** Scan blocks for orphaned blocks double spends */
+    void dumpDoubleSpends();
+
     
 private:
+    
     /** Uses the blockscanner to scan blocks within a file and add them to the
      * unordered map.
      * 
@@ -75,6 +82,11 @@ private:
      */
     VtcBlockIndexer::ScannedBlock findLongestChain(vector<VtcBlockIndexer::ScannedBlock> matchingBlocks); 
    
+    /** Adds matched blocks to an index by height. Continues to crawl orphaned chains too */
+    vector<VtcBlockIndexer::ScannedBlock> indexBlocksByHeight(int height, vector<VtcBlockIndexer::ScannedBlock> matchingBlocks, VtcBlockIndexer::ScannedBlock blockOnMainChain);
+    
+    void analyzeDoubleBlocks(unordered_map<int, vector<VtcBlockIndexer::Block>> doubleBlocks, json& results);
+
     /** Finds the next block in line (by matching the prevBlockHash which is the
      * key in the unordered_map). Then uses the block processor to do the indexing.
      * Returns the hash of the block that was processed.
@@ -90,8 +102,11 @@ private:
     unique_ptr<VtcBlockIndexer::BlockIndexer> blockIndexer;
     int totalBlocks;
     int blockHeight;
-    unordered_map<string, vector<VtcBlockIndexer::ScannedBlock>> blocks;    
+    unordered_map<string, vector<VtcBlockIndexer::ScannedBlock>> blocks;
+    unordered_map<int, vector<VtcBlockIndexer::ScannedBlock>> blocksByHeight;
     struct timespec maxLastModified;
+    unique_ptr<VtcBlockIndexer::ScriptSolver> scriptSolver;
+    json txToJson(VtcBlockIndexer::Transaction tx);
 }; 
 
 }

@@ -3,3 +3,4 @@ vtc_indexer
 .vscode/
 data/
 build_and_restart.sh
+blocks/

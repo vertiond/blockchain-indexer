@@ -34,6 +34,7 @@
 #include <time.h>
 
 using namespace std;
+using json = nlohmann::json;
 
 // Constructor
 VtcBlockIndexer::BlockFileWatcher::BlockFileWatcher(string blocksDir, const shared_ptr<leveldb::DB> db, const shared_ptr<VtcBlockIndexer::MempoolMonitor> mempoolMonitor) {
@@ -44,6 +45,7 @@ VtcBlockIndexer::BlockFileWatcher::BlockFileWatcher(string blocksDir, const shar
     this->blocksDir = blocksDir;
     this->maxLastModified.tv_sec = 0;
     this->maxLastModified.tv_nsec = 0;
+    this->scriptSolver = make_unique<VtcBlockIndexer::ScriptSolver>();
 }
 
 void VtcBlockIndexer::BlockFileWatcher::startWatcher() {
@@ -242,4 +244,241 @@ void VtcBlockIndexer::BlockFileWatcher::updateIndex() {
     cout << "Done. Processed " << this->blockHeight << " blocks. Have a nice day." << endl;
 
     this->blocks.clear();
+}
+
+vector<VtcBlockIndexer::ScannedBlock> VtcBlockIndexer::BlockFileWatcher::indexBlocksByHeight(int height, vector<VtcBlockIndexer::ScannedBlock> matchingBlocks, VtcBlockIndexer::ScannedBlock blockOnMainChain) {
+    //cout << "Adding " << matchingBlocks.size() << " blocks at height " << height << endl;
+    
+    vector<VtcBlockIndexer::ScannedBlock> followUpBlocks = {};
+
+    // Create an empty vector inside the unordered map if this previousBlockHash
+    // was not found before.
+    if(this->blocksByHeight.find(height) == this->blocksByHeight.end()) {
+        this->blocksByHeight[height] = {};
+    }
+
+    // Check if a block with the same hash already exists. Unfortunately, I found
+    // instances where a block is included in the block files more than once.
+    vector<VtcBlockIndexer::ScannedBlock> matchingKnownBlocks = this->blocksByHeight[height];
+    
+    for(VtcBlockIndexer::ScannedBlock matchingBlock : matchingBlocks) {
+        if(matchingBlock.blockHash == blockOnMainChain.blockHash) { 
+            matchingBlock.mainChain = true;
+        }
+
+        bool blockFound = false;
+        for(VtcBlockIndexer::ScannedBlock matchingKnownBlock : matchingKnownBlocks) {
+            if(matchingBlock.blockHash == matchingKnownBlock.blockHash) {
+                blockFound = true;
+            }
+        }
+        // If the block is not present, add it to the vector and crawl further.
+        if(!blockFound) {
+            this->blocksByHeight[height].push_back(matchingBlock);
+            vector<VtcBlockIndexer::ScannedBlock> nextMatchingBlocks = this->blocks[matchingBlock.blockHash];
+            for(VtcBlockIndexer::ScannedBlock nextMatchingBlock : nextMatchingBlocks)
+                followUpBlocks.push_back(nextMatchingBlock);
+        }
+    }
+
+    return followUpBlocks;
+}
+
+void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, vector<VtcBlockIndexer::Block>> doubleBlocks, json& results) {
+
+    unordered_map<string, vector<VtcBlockIndexer::PotentialDoubleSpend>> potentialDoubleSpends;
+
+    for(int i = 0; (doubleBlocks.find(i) != doubleBlocks.end()); i++)
+    {
+        for(int j = 0; j < doubleBlocks[i].size(); j++) {
+            VtcBlockIndexer::Block block = doubleBlocks[i][j];
+            for(VtcBlockIndexer::Transaction tx : block.transactions) {
+                for(VtcBlockIndexer::TransactionInput txi : tx.inputs) {
+                    if(txi.txHash.compare("0000000000000000000000000000000000000000000000000000000000000000") != 0)
+                    {
+                        stringstream ss;
+                        ss << txi.txHash << setw(8) << setfill('0') << txi.txoIndex;
+                        VtcBlockIndexer::PotentialDoubleSpend spend;
+                        spend.block = block;
+                        spend.tx = tx;
+                        if(potentialDoubleSpends.find(ss.str()) == potentialDoubleSpends.end()) {
+                            potentialDoubleSpends[ss.str()] = { spend };
+                        } else {
+                            potentialDoubleSpends[ss.str()].push_back(spend);
+                        }
+                    }
+                }
+            }
+        }
+    } 
+
+    vector<DoubleSpend> doubleSpends = {};
+
+    for (std::pair<string, vector<VtcBlockIndexer::PotentialDoubleSpend>> potentialDoubleSpend : potentialDoubleSpends)
+    {
+        if(potentialDoubleSpend.second.size() > 1) {
+            VtcBlockIndexer::PotentialDoubleSpend mainChainSpend;
+            bool foundMainChainSpend = false;
+            for(VtcBlockIndexer::PotentialDoubleSpend spend : potentialDoubleSpend.second) {
+                if(spend.block.mainChain) {
+                    mainChainSpend = spend;
+                    foundMainChainSpend = true;
+                    break;
+                }
+            }
+
+            if(!foundMainChainSpend) {
+                // At least one of the spends has to be on the main chain
+                continue;
+            }
+
+            vector<string> txHashes = { mainChainSpend.tx.txHash };
+            for(VtcBlockIndexer::PotentialDoubleSpend spend : potentialDoubleSpend.second) {
+                VtcBlockIndexer::Transaction tx = spend.tx;
+                for(string txHash : txHashes) {
+                    if(tx.txHash.compare(txHash) != 0) {
+                        VtcBlockIndexer::DoubleSpentOutpoint dso;
+                        dso.outpoint = potentialDoubleSpend.first;
+                        dso.alsoSpentInTx = spend.tx;
+                        dso.alsoSpentInBlock = spend.block;
+                        bool found = false;
+                        for(VtcBlockIndexer::DoubleSpend& existingDspend : doubleSpends) {
+
+                            if(existingDspend.block.blockHash == mainChainSpend.block.blockHash &&
+                                existingDspend.tx.txHash == mainChainSpend.tx.txHash) { 
+                                    existingDspend.outpoints.push_back(dso);
+                                    found = true;
+                                }
+                        }
+
+                        
+                        if(!found) {
+                            DoubleSpend dspend;
+                            dspend.block = mainChainSpend.block;
+                            dspend.tx = mainChainSpend.tx;
+                            dspend.outpoints = {dso};
+                            doubleSpends.push_back(dspend);
+                        } 
+                        txHashes.push_back(tx.txHash);
+
+                    }
+                }
+            } 
+        }
+    }
+
+    for(DoubleSpend ds : doubleSpends) {
+        json jsonSpend;
+        json jsonSpendBlock;
+
+        jsonSpendBlock["hash"] = ds.block.blockHash;
+        jsonSpendBlock["height"] = ds.block.height;
+        jsonSpend["mainChainBlock"] = jsonSpendBlock;
+        jsonSpend["mainChainTx"] = txToJson(ds.tx); 
+
+        json jdsos = json::array();
+        for(DoubleSpentOutpoint dso : ds.outpoints) {
+            json jdso;
+            jdso["outpoint"] = dso.outpoint;
+
+            json alsoSpentIn;
+            json alsoSpentInBlock;
+            alsoSpentIn["tx"] = txToJson(dso.alsoSpentInTx);
+            alsoSpentInBlock["hash"] = ds.block.blockHash;
+            alsoSpentInBlock["height"] = ds.block.height;
+            alsoSpentIn["block"] = alsoSpentInBlock;
+            jdso["alsoSpentIn"] = alsoSpentIn;
+            jdsos.push_back(jdso);
+        }
+        jsonSpend["doubleSpentOutpoints"] = jdsos;
+        results.push_back(jsonSpend);
+    }
+
+
+}
+
+json VtcBlockIndexer::BlockFileWatcher::txToJson(VtcBlockIndexer::Transaction tx) { 
+    json jtx;
+    jtx["txid"] = tx.txHash;
+
+    json vins = json::array();
+    for (VtcBlockIndexer::TransactionInput txi : tx.inputs) {
+            json vin;
+            vin["txid"] = txi.txHash;
+            vin["vout"] = txi.txoIndex;
+            vins.push_back(vin);
+    }
+    jtx["vin"] = vins;
+    
+    json vouts = json::array();
+    for (VtcBlockIndexer::TransactionOutput txo : tx.outputs) {
+        json vout;
+
+        json scriptPubKey;
+        vout["to"] = json::array();
+        vector<string> addresses = scriptSolver->getAddressesFromScript(txo.script);
+        for(string address : addresses) {
+            vout["to"].push_back(address);
+        }
+        vout["type"] = scriptSolver->getScriptTypeName(txo.script);
+        vout["valueSat"] = txo.value;
+        
+        vouts.push_back(vout);
+    }
+    jtx["vout"] = vouts;
+    return jtx;
+}
+
+void VtcBlockIndexer::BlockFileWatcher::dumpDoubleSpends() {
+    
+    scanBlockFiles(blocksDir);
+    
+    
+    string nextBlock = "0000000000000000000000000000000000000000000000000000000000000000";
+    vector<VtcBlockIndexer::ScannedBlock> matchingBlocks = this->blocks[nextBlock];
+    int i = 0;
+    while(matchingBlocks.size() > 0) {
+        i++;
+        VtcBlockIndexer::ScannedBlock blockOnMainChain = findLongestChain(matchingBlocks);
+        
+        matchingBlocks = indexBlocksByHeight(i, matchingBlocks, blockOnMainChain);
+    }
+
+    
+    json doubleSpends = json::array();
+
+    unordered_map<int, vector<VtcBlockIndexer::Block>> doubleBlocks;
+    int prevDoubleBlock = -1;
+    for(int i = 1; (this->blocksByHeight.find(i) != this->blocksByHeight.end()); i++)
+    {
+        if(this->blocksByHeight[i].size() > 1) {
+            if (prevDoubleBlock != i-1) {
+                analyzeDoubleBlocks(doubleBlocks, doubleSpends);
+                doubleBlocks.clear();
+            }
+
+            for(int j = 0; j < this->blocksByHeight[i].size(); j++)
+            {
+                VtcBlockIndexer::ScannedBlock scannedBlock = this->blocksByHeight[i][j];
+                VtcBlockIndexer::Block block = blockReader->readBlock(scannedBlock.fileName, scannedBlock.filePosition, i, false);
+                block.mainChain = scannedBlock.mainChain;
+                if(doubleBlocks.find(j) == doubleBlocks.end()) {
+                    doubleBlocks[j] = {block};
+                } else {
+                    for(int k = 0; doubleBlocks.find(k) != doubleBlocks.end(); k++)
+                    {
+                        if(doubleBlocks[k][doubleBlocks[k].size()-1].blockHash == block.previousBlockHash) {
+                            doubleBlocks[k].push_back(block);
+                        }
+                    }
+                }
+            }
+            
+            prevDoubleBlock = i;
+        }
+    }
+
+    analyzeDoubleBlocks(doubleBlocks, doubleSpends);
+
+    cout << doubleSpends << endl;
 }

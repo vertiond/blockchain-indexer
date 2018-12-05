@@ -77,6 +77,8 @@ int main(int argc, char* argv[]) {
     ("coinParams", "Coin parameters file", cxxopts::value<std::string>())
     ("indexDir", "Directory to save the indexes [Default: /index]", cxxopts::value<std::string>()->default_value("/index"))
     ("blocksDir", "Directory where the block files are located [Default: /blocks]", cxxopts::value<std::string>()->default_value("/blocks"))
+    ("dumpDoubleSpends", "Only run through the blockchain to found reorgd blocks containing double spends [default: no]", cxxopts::value<std::string>()->default_value("no"))
+   
     ;
 
     options.parse(argc, argv);
@@ -92,15 +94,22 @@ int main(int argc, char* argv[]) {
     // Read coin parameters
     VtcBlockIndexer::CoinParams::readFromFile(options["coinParams"].as<string>());
 
-    // Start memory pool monitor on a separate thread
-    mempoolMonitor = make_shared<VtcBlockIndexer::MempoolMonitor>();
-    std::thread mempoolThread(runMempoolMonitor);   
-     
     // Start blockfile watcher on separate thread
     blockFileWatcher.reset(new VtcBlockIndexer::BlockFileWatcher(options["blocksDir"].as<string>(), database, mempoolMonitor));
-    std::thread watcherThread(runBlockfileWatcher);   
-    
-    // Start webserver on main thread.
-    httpServer.reset(new VtcBlockIndexer::HttpServer(database, mempoolMonitor, options["blocksDir"].as<string>()));
-    httpServer->run(); 
+    if(options.count("dumpDoubleSpends") > 0) {
+        blockFileWatcher->dumpDoubleSpends();
+    } else {
+        std::thread watcherThread(runBlockfileWatcher);   
+
+        // Start memory pool monitor on a separate thread
+        mempoolMonitor = make_shared<VtcBlockIndexer::MempoolMonitor>();
+        std::thread mempoolThread(runMempoolMonitor);   
+                
+        // Start webserver on main thread.
+        httpServer.reset(new VtcBlockIndexer::HttpServer(database, mempoolMonitor, options["blocksDir"].as<string>()));
+        httpServer->run(); 
+    }
 }
+    
+
+   
