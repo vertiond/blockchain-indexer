@@ -18,7 +18,8 @@
             <tr>
                 <th>Block (main)</th>
                 <th>TX (main)</th>
-                <th># double<br/>spend TX</th>
+                <th>Block (orphan)</th>
+                <th>TX (orphan)</th>
                 <th>Sum outputs<br/>double spent</th>
             </tr>
         </thead>
@@ -28,37 +29,71 @@
     </table>
 
     <!-- Modal -->
-    <div class="modal fade" id="detailTxes" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+    <div class="modal fade" id="doubleSpendTxDetail" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg" role="document">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title" id="exampleModalLabel">Modal title</h5>
-              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-              </button>
-            </div>
-            <div class="modal-body" style="overflow-x: auto; overflow-y: auto;"> 
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exampleModalLabel">Double Spend Details</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="overflow-x: auto; overflow-y: auto;"> 
                     <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Block (orphan)</th>
-                                    <th>TX (orphan)</th>
-                                    <th>Sum outputs</th>
-                                    <th>Outpoints double spent</th>
-                                </tr>
-                            </thead>
-                            <tbody id="outpointdetails">
-                                
-                            </tbody>
-                        </table>
+                        <tbody>
+                            <tr>
+                                <td><b>Orphaned Block Hash:</b></td>
+                                <td><span id="doubleSpendOrphanedBlockHash"></span></td>
+                            </tr>
+                            <tr>
+                                <td><b>Orphaned Block Height:</b></td>
+                                <td><span id="doubleSpendOrphanedBlockHeight"></span></td>
+                            </tr>
+                            <tr>
+                                <td><b>Transaction ID:</b></td>
+                                <td><span id="doubleSpendOrphanedTransactionID"></span></td>
+                            </tr>
+                            <tr>
+                                <td><b>Inputs:</b><br/><small>(Red = Double spent)</small></td>
+                                <td>
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th>TX</th>
+                                                <th>Outpoint</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="doubleSpendTransactionInputs">
+
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><b>Outputs:</b></td>
+                                <td>
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th>Address</th>
+                                                <th>Value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="doubleSpendTransactionOutputs">
+                                            
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
             </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-              <button type="button" class="btn btn-primary">Save changes</button>
-            </div>
-          </div>
         </div>
-      </div>
+    </div>
     <!-- Optional JavaScript -->
     <!-- jQuery first, then Popper.js, then Bootstrap JS -->
     <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>

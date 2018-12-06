@@ -1,5 +1,12 @@
-var trimHash = function(s) {
-    return s.substr(0,4) + "..." + s.substr(s.length-4,4);
+var trimHash = function(s, z) {
+    z = z || 4
+    return s.substr(0,z) + "..." + s.substr(s.length-z,z);
+}
+
+var zeroPad = function(n, width) {
+    z = '0';
+    n = n + '';
+    return n.length >= width ? n : new Array(width - n.length + 1).join(z) + n;
 }
 
 $(document).ready(() => {
@@ -11,8 +18,12 @@ $(document).ready(() => {
             spends = spends.reverse();
             for(s of spends) {
                 var spend = $('<tr>');
-                spend.append($('<td>').text(s.mainChainBlock.height));
-                spend.append($('<td>').text(s.mainChainTx.txid));
+                
+                var blockHashLink = $('<a>').attr('target','_blank').attr('href','http://insight.vertcoin.org/block/' + s.mainChainBlock.hash).text(trimHash(s.mainChainBlock.hash) + " (" + s.mainChainBlock.height + ")");
+                var txidLink = $('<a>').attr('target','_blank').attr('href','http://insight.vertcoin.org/tx/' + s.mainChainTx.txid).text(trimHash(s.mainChainTx.txid,8));
+
+                spend.append($('<td>').append(blockHashLink));
+                spend.append($('<td>').append(txidLink));
 
                 var doubleSpendOutputValue = 0;
                 var doubleSpendTxes = [];
@@ -27,39 +38,54 @@ $(document).ready(() => {
                        
                     }
                 }
-                var txs = $("<a>").attr("href","#").text(doubleSpendTxes.length);
+
+                var doubleSpendBlockHashLink = $('<a>').attr('href','#').text(trimHash(s.doubleSpentOutpoints[0].alsoSpentIn.block.hash) + " (" + s.doubleSpentOutpoints[0].alsoSpentIn.block.height + ")").click(s.doubleSpentOutpoints[0].alsoSpentIn.block.hash, (event) => { alert(event.data); });
+                spend.append($('<td>').append(doubleSpendBlockHashLink));
+
+                var txs = $("<a>").attr("href","#").text(trimHash(s.doubleSpentOutpoints[0].alsoSpentIn.tx.txid,8));
                 txs.click(s, (event) => {
 
                     var showSpend = event.data;
 
-                    $('#outpointdetails').empty();
-                    var doubleSpendTxes2 = [];
-                    for(dso of showSpend.doubleSpentOutpoints) {
-                        if(!doubleSpendTxes2.find(dstxid => (dstxid === dso.alsoSpentIn.tx.txid))) {
-                            doubleSpendTxes2.push(dso.alsoSpentIn.tx.txid)
+                    $('#doubleSpendOrphanedBlockHash').text(showSpend.doubleSpentOutpoints[0].alsoSpentIn.block.hash);
+                    $('#doubleSpendOrphanedBlockHeight').text(showSpend.doubleSpentOutpoints[0].alsoSpentIn.block.height);
+                    $('#doubleSpendOrphanedTransactionID').text(showSpend.doubleSpentOutpoints[0].alsoSpentIn.tx.txid);
+                    
+                    $('#doubleSpendTransactionInputs').empty();
+                    for(vin of showSpend.doubleSpentOutpoints[0].alsoSpentIn.tx.vin) {
+                        var inputRow = $("<tr>");
+                
+                        inputRow.append($("<td>").append($('<a>').attr('href','#').text(trimHash(vin.txid, 8)).click(vin.txid, (event) => { alert(event.data); })))
+                        inputRow.append($("<td>").text(vin.vout));
 
-                            var dsoRow = $('<tr>');
-                            var dsoValue = 0;
-                                
-                            for(out of dso.alsoSpentIn.tx.vout) {
-                                dsoValue += out.valueSat/100000000;
+                        var matchOutpoint = (vin.txid + zeroPad(vin.vout,8));
+                        
+                        for(dso of showSpend.doubleSpentOutpoints) {
+                            if(dso.outpoint === matchOutpoint) {
+                                // This input is a double spend, mark red
+                                inputRow.addClass('table-danger');
                             }
-
-                            dsoRow.append($("<td>").text(trimHash(dso.alsoSpentIn.block.hash)));
-                            dsoRow.append($("<td>").text(trimHash(dso.alsoSpentIn.tx.txid)));
-                            dsoRow.append($("<td>").text(dsoValue));
-
-                            var dsoRowOutpoints = $("<td>");
-                            for(dso2 of showSpend.doubleSpentOutpoints) {
-                                if(dso2.alsoSpentIn.tx.txid == dso.alsoSpentIn.tx.txid) {
-                                    dsoRowOutpoints.append($("<div>").text(trimHash(dso2.outpoint)));
-                                }
-                            }
-                            dsoRow.append(dsoRowOutpoints);
-                            $('#outpointdetails').append(dsoRow);
                         }
+                        $('#doubleSpendTransactionInputs').append(inputRow);
                     }
-                    $('#detailTxes').modal();
+
+                    $('#doubleSpendTransactionOutputs').empty();
+                    for(vout of showSpend.doubleSpentOutpoints[0].alsoSpentIn.tx.vout) {
+                        var outputRow = $("<tr>");
+                
+                        var htmlRecipients = "";
+                        for(to of vout.to) {
+                            if(!(htmlRecipients === "")) { htmlRecipients += "<br/>"; }
+                            htmlRecipients += to;
+                        }
+
+                        outputRow.append($("<td>").html(htmlRecipients));
+                        outputRow.append($("<td>").text((vout.valueSat/100000000).toString() + " VTC"));
+                        
+                        $('#doubleSpendTransactionOutputs').append(outputRow);
+                    }
+
+                    $('#doubleSpendTxDetail').modal();
                 });
                 spend.append($('<td>').append(txs));
                 spend.append($('<td>').text(doubleSpendOutputValue));
@@ -72,4 +98,3 @@ $(document).ready(() => {
 
     
 });
-
