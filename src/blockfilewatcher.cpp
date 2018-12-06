@@ -332,44 +332,36 @@ void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, v
                 continue;
             }
 
-            vector<string> txHashes = { mainChainSpend.tx.txHash };
             for(VtcBlockIndexer::PotentialDoubleSpend spend : potentialDoubleSpend.second) {
-                VtcBlockIndexer::Transaction tx = spend.tx;
-                for(string txHash : txHashes) {
-                    if(tx.txHash.compare(txHash) != 0) {
-                        VtcBlockIndexer::DoubleSpentOutpoint dso;
-                        dso.outpoint = potentialDoubleSpend.first;
-                        dso.alsoSpentInTx = spend.tx;
-                        dso.alsoSpentInBlock = spend.block;
-                        bool found = false;
-                        for(VtcBlockIndexer::DoubleSpend& existingDspend : doubleSpends) {
-                            if(found) break;
-                            if(existingDspend.block.blockHash.compare(mainChainSpend.block.blockHash) == 0 &&
-                                existingDspend.tx.txHash.compare(mainChainSpend.tx.txHash) == 0) { 
-
-                                    for(VtcBlockIndexer::DoubleSpentOutpoint& existingDso : existingDspend.outpoints) {
-                                        if(existingDso.alsoSpentInBlock.blockHash.compare(dso.alsoSpentInBlock.blockHash) == 0 &&
-                                            existingDso.alsoSpentInTx.txHash.compare(dso.alsoSpentInTx.txHash) == 0) {
-                                                existingDspend.outpoints.push_back(dso); 
-                                                found = true;
-                                                break;
-                                            }
-                                    }
-
+                if(spend.tx.txHash.compare(mainChainSpend.tx.txHash) != 0 &&
+                    spend.block.blockHash.compare(mainChainSpend.block.blockHash) != 0) {
+                    VtcBlockIndexer::DoubleSpentOutpoint dso;
+                    dso.outpoint = potentialDoubleSpend.first;
+                    dso.alsoSpentInTx = spend.tx;
+                    dso.alsoSpentInBlock = spend.block;
+                    bool found = false;
+                    for(VtcBlockIndexer::DoubleSpend& existingDspend : doubleSpends) {
+                        if(found) break;
+                        if(existingDspend.block.blockHash.compare(mainChainSpend.block.blockHash) == 0 &&
+                            existingDspend.tx.txHash.compare(mainChainSpend.tx.txHash) == 0) { 
+                            for(VtcBlockIndexer::DoubleSpentOutpoint& existingDso : existingDspend.outpoints) {
+                                if(existingDso.alsoSpentInBlock.blockHash.compare(dso.alsoSpentInBlock.blockHash) == 0 &&
+                                    existingDso.alsoSpentInTx.txHash.compare(dso.alsoSpentInTx.txHash) == 0) {
+                                    existingDspend.outpoints.push_back(dso); 
+                                    found = true;
+                                    break;
                                 }
+                            }
                         }
-
-                        
-                        if(!found) {
-                            DoubleSpend dspend;
-                            dspend.block = mainChainSpend.block;
-                            dspend.tx = mainChainSpend.tx;
-                            dspend.outpoints = {dso};
-                            doubleSpends.push_back(dspend);
-                        } 
-                        txHashes.push_back(tx.txHash);
-
                     }
+                    
+                    if(!found) {
+                        DoubleSpend dspend;
+                        dspend.block = mainChainSpend.block;
+                        dspend.tx = mainChainSpend.tx;
+                        dspend.outpoints = {dso};
+                        doubleSpends.push_back(dspend);
+                    } 
                 }
             } 
         }
@@ -392,8 +384,8 @@ void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, v
             json alsoSpentIn;
             json alsoSpentInBlock;
             alsoSpentIn["tx"] = txToJson(dso.alsoSpentInTx);
-            alsoSpentInBlock["hash"] = ds.block.blockHash;
-            alsoSpentInBlock["height"] = ds.block.height;
+            alsoSpentInBlock["hash"] = dso.alsoSpentInBlock.blockHash;
+            alsoSpentInBlock["height"] = dso.alsoSpentInBlock.height;
             alsoSpentIn["block"] = alsoSpentInBlock;
             jdso["alsoSpentIn"] = alsoSpentIn;
             jdsos.push_back(jdso);
