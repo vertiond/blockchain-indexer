@@ -7,20 +7,28 @@
 
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.5.0/css/all.css" integrity="sha384-B4dIYHKNBt8Bc12p+WXckhzcICo0wtJAoU8YZTY5qE0Id1GSseTk6S+L3BlXeVIU" crossorigin="anonymous">
 
-    <title>Double Spends on VTC</title>
+    <title>(Double) Spending Incidents on VTC</title>
   </head>
   <body>
-    <h1>Double Spends (<span id="numSpends">0</span>)</h1>
+    <div class="row">
+    <h1>Incidents (<span id="numSpends">0</span>)</h1>
+    <p>After recent events on the Vertcoin blockchain, I built an extension to my <a href="https://github.com/gertjaap/blockchain-indexer">Blockchain Indexer</a> to index orphaned chains and look for double spends or spending of lost coinbases. This page is a basic explorer for the results found. Don't rely on this data in anyway - eventough I'm pretty sure it's accurate, it's still a work in progress.</p>
+    <p>Writing stuff like this takes quite some time, so if you find this useful, feel free to donate some VTC: <pre>Vc6hVEyagx5ViW488X2Wvfpq6JhPVb1TND</pre></p>
+    </div>
 
-    <table class="table">
+    
+    <table class="table table-sm">
         <thead>
             <tr>
+                <th>Incident</th>
                 <th>Block (main)</th>
                 <th>TX (main)</th>
                 <th>Block (orphan)</th>
                 <th>TX (orphan)</th>
-                <th>Sum outputs<br/>double spent</th>
+                <th>&nbsp;</th>
+                <th>Sum spent</th>
             </tr>
         </thead>
         <tbody id="spends">

@@ -172,6 +172,12 @@ struct DoubleSpend {
     vector<DoubleSpentOutpoint> outpoints;
 };
 
+struct DoubleSpentCoinBase {
+    Transaction tx;
+    Block block;
+    vector<string> outpoints;
+};
+
 
 }
 #endif // BLOCKCHAINTYPES_H_INCLUDED

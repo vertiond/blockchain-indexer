@@ -284,7 +284,7 @@ vector<VtcBlockIndexer::ScannedBlock> VtcBlockIndexer::BlockFileWatcher::indexBl
     return followUpBlocks;
 }
 
-void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, vector<VtcBlockIndexer::Block>> doubleBlocks, json& results) {
+void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, vector<VtcBlockIndexer::Block>> doubleBlocks, json& results, vector<string>& reorgedCoinbases) {
 
     unordered_map<string, vector<VtcBlockIndexer::PotentialDoubleSpend>> potentialDoubleSpends;
 
@@ -293,6 +293,13 @@ void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, v
         for(int j = 0; j < doubleBlocks[i].size(); j++) {
             VtcBlockIndexer::Block block = doubleBlocks[i][j];
             for(VtcBlockIndexer::Transaction tx : block.transactions) {
+                if(tx.inputs.at(0).txHash.compare("0000000000000000000000000000000000000000000000000000000000000000") == 0 && !block.mainChain) {
+                    // This is a coinbase transaction that got reorged out. Store its TXID to match spending.
+                    // A transaction spending this coinbase will be gone from the main chain after reorg too
+                    // without a double spend necessary.
+                    reorgedCoinbases.push_back(tx.txHash);
+                }
+
                 for(VtcBlockIndexer::TransactionInput txi : tx.inputs) {
                     if(txi.txHash.compare("0000000000000000000000000000000000000000000000000000000000000000") != 0)
                     {
@@ -313,25 +320,82 @@ void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, v
     } 
 
     vector<DoubleSpend> doubleSpends = {};
-
+    vector<DoubleSpentCoinBase> orphansSpendingReorgedCoinbase = {};
+    vector<Transaction> orphansMissingFromMainChain = {};
     for (std::pair<string, vector<VtcBlockIndexer::PotentialDoubleSpend>> potentialDoubleSpend : potentialDoubleSpends)
     {
-        if(potentialDoubleSpend.second.size() > 1) {
-            VtcBlockIndexer::PotentialDoubleSpend mainChainSpend;
-            bool foundMainChainSpend = false;
+        VtcBlockIndexer::PotentialDoubleSpend mainChainSpend;
+        bool foundMainChainSpend = false;
+        for(VtcBlockIndexer::PotentialDoubleSpend spend : potentialDoubleSpend.second) {
+            if(spend.block.mainChain) {
+                mainChainSpend = spend;
+                foundMainChainSpend = true;
+                break;
+            }
+        }
+
+        if(!foundMainChainSpend) {
             for(VtcBlockIndexer::PotentialDoubleSpend spend : potentialDoubleSpend.second) {
-                if(spend.block.mainChain) {
-                    mainChainSpend = spend;
-                    foundMainChainSpend = true;
-                    break;
+                bool spentReorgedCoinbase = false;
+                bool spentOtherInputs = false;
+                string spentCoinbase;
+                for(VtcBlockIndexer::TransactionInput txi : spend.tx.inputs) {
+                    bool inputSpendsReorgedCoinbase = false;
+                    for(string reorgedCoinbase : reorgedCoinbases) {
+                        if(reorgedCoinbase.compare(txi.txHash) == 0) {
+                            // This transaction spends a coinbase that was reorged out.
+                            inputSpendsReorgedCoinbase = true;
+                            spentCoinbase = txi.txHash + "00000000";
+                        }
+                    }
+                    if(inputSpendsReorgedCoinbase) {
+                        spentReorgedCoinbase = true;
+                    } else { 
+                        spentOtherInputs = true;
+                    }
+                }
+                if(spentReorgedCoinbase) {
+                    bool foundOrphanSpend = false;
+                    for(VtcBlockIndexer::DoubleSpentCoinBase& existingDso : orphansSpendingReorgedCoinbase) {
+                        if(existingDso.block.blockHash.compare(spend.block.blockHash) == 0 &&
+                            existingDso.tx.txHash.compare(spend.tx.txHash) == 0) {
+                            
+                            bool foundOutpoint = false;
+                            for(string op : existingDso.outpoints) {
+                                if(op.compare(spentCoinbase) == 0) {
+                                    foundOutpoint = true;
+                                }
+                            }
+                            if(!foundOutpoint) {
+                                existingDso.outpoints.push_back(spentCoinbase); 
+                            }
+                            foundOrphanSpend = true;
+                            break;
+                        }
+                    }
+                    if(!foundOrphanSpend) {
+                        DoubleSpentCoinBase dspend;
+                        dspend.tx = spend.tx;
+                        dspend.block = spend.block;
+                        dspend.outpoints = {spentCoinbase};
+                        orphansSpendingReorgedCoinbase.push_back(dspend);
+                    }
+                } else {
+                    bool foundOrphan = false;
+                    for(VtcBlockIndexer::Transaction tx : orphansMissingFromMainChain) {
+                        if(spend.tx.txHash.compare(tx.txHash) == 0) {
+                            foundOrphan = true;
+                        }
+                    }
+                    if(!foundOrphan) {
+                        orphansMissingFromMainChain.push_back(spend.tx);
+                    }
                 }
             }
+            continue;
+        }
 
-            if(!foundMainChainSpend) {
-                // At least one of the spends has to be on the main chain
-                continue;
-            }
-
+        if(foundMainChainSpend && potentialDoubleSpend.second.size() > 1) {
             for(VtcBlockIndexer::PotentialDoubleSpend spend : potentialDoubleSpend.second) {
                 if(spend.tx.txHash.compare(mainChainSpend.tx.txHash) != 0 &&
                     spend.block.blockHash.compare(mainChainSpend.block.blockHash) != 0) {
@@ -366,8 +430,10 @@ void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, v
             } 
         }
     }
+    
 
     for(DoubleSpend ds : doubleSpends) {
+        json jsonEvent;
         json jsonSpend;
         json jsonSpendBlock;
 
@@ -391,8 +457,36 @@ void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, v
             jdsos.push_back(jdso);
         }
         jsonSpend["doubleSpentOutpoints"] = jdsos;
-        results.push_back(jsonSpend);
+
+        jsonEvent["event"] = "doubleSpend";
+        jsonEvent["details"] = jsonSpend;
+        results.push_back(jsonEvent);
     }
+
+    for(DoubleSpentCoinBase dspend : orphansSpendingReorgedCoinbase) {
+        json jsonEvent;
+        jsonEvent["event"] = "spendingReorgedCoinbase";
+        
+        json jsonDetails;
+
+        jsonDetails["orphanedTx"] = txToJson(dspend.tx);
+
+        json jsonBlock;
+        jsonBlock["hash"] = dspend.block.blockHash;
+        jsonBlock["height"] = dspend.block.height;
+        jsonDetails["orphanedBlock"] = jsonBlock;
+        
+        jsonDetails["coinbasesSpent"] = dspend.outpoints;
+        jsonEvent["details"] = jsonDetails;
+        results.push_back(jsonEvent);
+    }
+
+    /*for(Transaction tx : orphansMissingFromMainChain) {
+        json jsonEvent;
+        jsonEvent["event"] = "missingFromMainChain";
+        jsonEvent["details"] = txToJson(tx);
+        results.push_back(jsonEvent);
+    }*/
 
 
 }
@@ -448,12 +542,13 @@ void VtcBlockIndexer::BlockFileWatcher::dumpDoubleSpends() {
     json doubleSpends = json::array();
 
     unordered_map<int, vector<VtcBlockIndexer::Block>> doubleBlocks;
+    vector<string> reorgedCoinbases;
     int prevDoubleBlock = -1;
     for(int i = 1; (this->blocksByHeight.find(i) != this->blocksByHeight.end()); i++)
     {
         if(this->blocksByHeight[i].size() > 1) {
             if (prevDoubleBlock != i-1) {
-                analyzeDoubleBlocks(doubleBlocks, doubleSpends);
+                analyzeDoubleBlocks(doubleBlocks, doubleSpends, reorgedCoinbases);
                 doubleBlocks.clear();
             }
 
@@ -478,7 +573,7 @@ void VtcBlockIndexer::BlockFileWatcher::dumpDoubleSpends() {
         }
     }
 
-    analyzeDoubleBlocks(doubleBlocks, doubleSpends);
+    analyzeDoubleBlocks(doubleBlocks, doubleSpends, reorgedCoinbases);
 
     cout << doubleSpends << endl;
 }

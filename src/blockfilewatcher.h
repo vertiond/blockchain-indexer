@@ -85,7 +85,7 @@ private:
     /** Adds matched blocks to an index by height. Continues to crawl orphaned chains too */
     vector<VtcBlockIndexer::ScannedBlock> indexBlocksByHeight(int height, vector<VtcBlockIndexer::ScannedBlock> matchingBlocks, VtcBlockIndexer::ScannedBlock blockOnMainChain);
     
-    void analyzeDoubleBlocks(unordered_map<int, vector<VtcBlockIndexer::Block>> doubleBlocks, json& results);
+    void analyzeDoubleBlocks(unordered_map<int, vector<VtcBlockIndexer::Block>> doubleBlocks, json& results, vector<string>& reorgedCoinbases);
 
     /** Finds the next block in line (by matching the prevBlockHash which is the
      * key in the unordered_map). Then uses the block processor to do the indexing.
