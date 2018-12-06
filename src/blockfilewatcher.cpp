@@ -343,11 +343,19 @@ void VtcBlockIndexer::BlockFileWatcher::analyzeDoubleBlocks(unordered_map<int, v
                         dso.alsoSpentInBlock = spend.block;
                         bool found = false;
                         for(VtcBlockIndexer::DoubleSpend& existingDspend : doubleSpends) {
+                            if(found) break;
+                            if(existingDspend.block.blockHash.compare(mainChainSpend.block.blockHash) == 0 &&
+                                existingDspend.tx.txHash.compare(mainChainSpend.tx.txHash) == 0) { 
 
-                            if(existingDspend.block.blockHash == mainChainSpend.block.blockHash &&
-                                existingDspend.tx.txHash == mainChainSpend.tx.txHash) { 
-                                    existingDspend.outpoints.push_back(dso);
-                                    found = true;
+                                    for(VtcBlockIndexer::DoubleSpentOutpoint& existingDso : existingDspend.outpoints) {
+                                        if(existingDso.alsoSpentInBlock.blockHash.compare(dso.alsoSpentInBlock.blockHash) == 0 &&
+                                            existingDso.alsoSpentInTx.txHash.compare(dso.alsoSpentInTx.txHash) == 0) {
+                                                existingDspend.outpoints.push_back(dso); 
+                                                found = true;
+                                                break;
+                                            }
+                                    }
+
                                 }
                         }
 
