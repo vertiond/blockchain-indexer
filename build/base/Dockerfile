@@ -7,10 +7,10 @@ WORKDIR /src
 RUN git clone --recursive https://github.com/corvusoft/restbed.git
 RUN mkdir restbed/build
 WORKDIR restbed/build
-RUN cmake -DBUILD_SSL=NO ..
+RUN cmake -DBUILD_SSL=NO -DBUILD_TESTS=NO ..
 RUN make install
 RUN cp -r ../distribution/include/* /usr/local/include
-RUN cp -r ../distribution/library/* /usr/lib
+RUN cp -r ../distribution/lib/* /usr/lib
 
 WORKDIR /
 RUN git clone https://github.com/vertcoin/vertcoin
