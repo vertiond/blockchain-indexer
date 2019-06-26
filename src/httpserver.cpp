@@ -650,9 +650,23 @@ void VtcBlockIndexer::HttpServer::addressTxos( const shared_ptr< Session > sessi
 
         leveldb::Status s = this->db->Get(leveldb::ReadOptions(), "txo-" + txo.substr(0,64) + "-" + txo.substr(64,8) + "-spent", &spentTx);
         long long block = stoll(txo.substr(72,8));
-        if(block >= sinceBlock) {
+
+        stringstream ssBlockTimeHeightKey;
+        string blockTimeStr;
+        ssBlockTimeHeightKey << "block-time-" << setw(8) << setfill('0') << block;
+        this->db->Get(leveldb::ReadOptions(), ssBlockTimeHeightKey.str(), &blockTimeStr);
+
+        const long long blockTime = stoll(blockTimeStr);
+
+        // If the block count param is greater than 2000/1/1 consider
+        // it as a timestamp rather than block height
+        const long long blockTimeCrossover = 946702800;
+
+        if((block >= sinceBlock && sinceBlock < blockTimeCrossover) || 
+           (blockTime >= sinceBlock && sinceBlock >= blockTimeCrossover)) {
             json txoObj;
             txoObj["height"] = block;
+            txoObj["time"] = blockTime;
 
             if(!s.ok()) {
                 if(unconfirmed) {
@@ -718,11 +732,6 @@ void VtcBlockIndexer::HttpServer::addressTxos( const shared_ptr< Session > sessi
                 txoObj["vout"] = stoll(txo.substr(64,8));
                 txoObj["value"] = stoll(txo.substr(80));
             }
-            stringstream ssBlockTimeHeightKey;
-            string blockTimeStr;
-            ssBlockTimeHeightKey << "block-time-" << setw(8) << setfill('0') << block;
-            s = this->db->Get(leveldb::ReadOptions(), ssBlockTimeHeightKey.str(), &blockTimeStr);
-            txoObj["time"] = stoll(blockTimeStr);
 
             j.push_back(txoObj);
         }
