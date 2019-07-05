@@ -95,8 +95,9 @@ int main(int argc, char* argv[]) {
     VtcBlockIndexer::CoinParams::readFromFile(options["coinParams"].as<string>());
 
     // Start blockfile watcher on separate thread
-    blockFileWatcher.reset(new VtcBlockIndexer::BlockFileWatcher(options["blocksDir"].as<string>(), database, mempoolMonitor));
+    
     if(options.count("dumpDoubleSpends") > 0) {
+        blockFileWatcher.reset(new VtcBlockIndexer::BlockFileWatcher(options["blocksDir"].as<string>(), database, mempoolMonitor));
         blockFileWatcher->dumpDoubleSpends();
     } else {
         std::thread watcherThread(runBlockfileWatcher);   
@@ -105,6 +106,8 @@ int main(int argc, char* argv[]) {
         mempoolMonitor = make_shared<VtcBlockIndexer::MempoolMonitor>();
         std::thread mempoolThread(runMempoolMonitor);   
                 
+        blockFileWatcher.reset(new VtcBlockIndexer::BlockFileWatcher(options["blocksDir"].as<string>(), database, mempoolMonitor));
+        
         // Start webserver on main thread.
         httpServer.reset(new VtcBlockIndexer::HttpServer(database, mempoolMonitor, options["blocksDir"].as<string>()));
         httpServer->run(); 
