@@ -32,7 +32,7 @@ using namespace std;
 
 
 VtcBlockIndexer::MempoolMonitor::MempoolMonitor() {
-    httpClient.reset(new jsonrpc::HttpClient("http://middleware:middleware@" + std::string(std::getenv("COIND_HOST")) + ":8332"));
+    httpClient.reset(new jsonrpc::HttpClient("http://" + std::string(std::getenv("COIND_RPCUSER")) + ":" + std::string(std::getenv("COIND_RPCPASSWORD")) + "@" + std::string(std::getenv("COIND_HOST")) + ":" + std::string(std::getenv("COIND_RPCPORT"))));
     vertcoind.reset(new VertcoinClient(*httpClient));
     blockReader.reset(new VtcBlockIndexer::BlockReader(""));
     scriptSolver.reset(new VtcBlockIndexer::ScriptSolver());
