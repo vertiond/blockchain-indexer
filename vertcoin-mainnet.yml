@@ -2,7 +2,7 @@ version: "2"
 services:
 
   vertcoind-main:
-    image: lukechilds/vertcoind
+    image: firrae/vertcoind
     restart: always
     expose:
       - "8332"
