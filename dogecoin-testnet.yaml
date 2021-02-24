@@ -1,0 +1,32 @@
+version: "2"
+services:
+
+  vertcoind-test:
+    image: lukechilds/vertcoind
+    restart: always
+    expose:
+      - "8332"
+      - "8333"
+    ports:
+      - "44556:44556"
+    volumes:
+      - ./data/doge/test/coind:/data
+    command: -rpcuser=middleware -rpcpassword=middleware -testnet -txindex
+
+  vtc-middleware-cpp-test:
+    image: vtc-wallet-middleware
+    restart: always
+    environment:
+      - COIND_HOST=vertcoind-test
+    expose:
+      - "8888"
+    volumes:
+      - ./data/doge/test/coind/testnet3/blocks:/blocks
+      - ./data/doge/test/index:/index
+      - ./coins:/coins
+    command: --coinParams=/coins/dogecoin-testnet.json
+
+networks:    
+  default:
+    external:
+      name: blockchain-indexer
